@@ -3,7 +3,7 @@ Author: Luc Dekens
 
 v1.0 - 28 Aug 2015
 - initial version
-v1.1 - 07 Sep 2015
+v1.1 - 11 Jan 2016
 - based on Ravello Systems REST API v1.1
 - added cmdlets for Ephemeral Access Tokens
 - completed Help pages
