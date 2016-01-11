@@ -4,88 +4,122 @@ $RavelloBaseUrl = 'https://cloud.ravellosystems.com/api/v1'
 
 #region Helpers
 # .ExternalHelp Ravello-Help.xml
-function ConvertFrom-JsonDateTime
+function ConvertFrom-hRavelloJsonDateTime
 {
   [CmdletBinding()]
-  param(
-    [string]$DateTime
+  param (
+    [int64]$DateTime
   )
-
-  Process{
-    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
-    (New-Object DateTime(1970, 1, 1, 0, 0, 0, 0)).AddMilliseconds([long]$DateTime).ToLocalTime()
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function ConvertTo-JsonDateTime
-{
-  [CmdletBinding()]
-  param(
-    [DateTime]$Date
-  )
-
+	
   Process
   {
     Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
-    [int64](($Date).addhours((([datetime]::UtcNow)-($Date)).Hours)-(Get-Date '1/1/1970')).totalmilliseconds
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    (New-Object -TypeName DateTime -ArgumentList (1970, 1, 1, 0, 0, 0, 0)).AddMilliseconds([long]$DateTime).ToLocalTime()
   }
 }
 
 # .ExternalHelp Ravello-Help.xml
-function Invoke-RavRest
+function ConvertTo-hRavelloJsonDateTime
 {
   [CmdletBinding()]
+  param (
+    [DateTime]$Date
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    [int64]($Date.ToUniversalTime() - (Get-Date '1/1/1970')).totalmilliseconds
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Convert-hRavelloTimeField
+{
   param(
+    [psobject[]]$Object
+  )
+  
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    foreach($obj in $Object)
+    {
+      $obj.psobject.properties | ForEach-Object -Process {
+        if('System.Object[]','System.Management.Automation.PSCustomObject' -contains $_.TypeNameOfValue)
+        {
+          Convert-hRavelloTimeField -Object $obj.$($_.Name)
+        }
+        elseif($_.Name -match 'Time' -and $_.TypeNameOfValue -eq 'System.Int64')
+        {
+          $obj.$($_.Name) = (ConvertFrom-hRavelloJsonDateTime -DateTime $obj.$($_.Name))
+        }
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Invoke-hRavelloRest
+{
+  [CmdletBinding()]
+  param (
     [String]$Method,
     [String]$Request,
     [PSObject]$Body
   )
-
-  Process{
+	
+  Process
+  {
     Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
-
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
     $headers = $Script:AuthHeader.Clone()
-    $headers.Add('Accept','application/json')
+    $headers.Add('Accept', 'application/json')
     $sRest = @{
       Uri         = $RavelloBaseUrl, $Request -join '/'
       Method      = $Method
       ContentType = 'application/json'
       Headers     = $local:headers
       ErrorAction = 'Stop'
-#      OutFile = 'C:\Temp\restmethod.txt'
-#      PassThru = $true
     }
-    if(Get-Process -Name fiddler -ErrorAction SilentlyContinue)
+    if (Get-Process -Name fiddler -ErrorAction SilentlyContinue)
     {
-      $sRest.Add('Proxy','http://127.0.0.1:8888')
+      $sRest.Add('Proxy', 'http://127.0.0.1:8888')
     }
-    if($Script:RavelloSession)
+    if ($Script:RavelloSession)
     {
-      $sRest.Add('WebSession',$Script:RavelloSession)
+      $sRest.Add('WebSession', $Script:RavelloSession)
     }
     else
     {
-      $sRest.Add('SessionVariable','Script:RavelloSession')
+      $sRest.Add('SessionVariable', 'Script:RavelloSession')
     }
     # To handle nested properties the Depth parameter is used explicitely (default is 2)
-    if($Body)
+    if ($Body)
     {
-      $sRest.Add('Body',($Body | ConvertTo-Json -Depth 32 -Compress))
+      $sRest.Add('Body', ($Body | ConvertTo-Json -Depth 32 -Compress))
     }
-
-    Write-Debug -Message 'sRest==>'
+		
     Write-Debug -Message "`tUri             : $($sRest.Uri)"
     Write-Debug -Message "`tMethod          : $($sRest.Method)"
     Write-Debug -Message "`tContentType     : $($sRest.ContentType)"
     Write-Debug -Message "`tHeaders"
-    $sRest.Headers.GetEnumerator() |ForEach-Object -Process {
+    $sRest.Headers.GetEnumerator() | ForEach-Object -Process {
       Write-Debug "`t                : $($_.Name)`t$($_.Value)"
     }
     Write-Debug -Message "`tBody            : $($sRest.Body)"
-    Write-Debug -Message "`tSessionVariable : $($sRest.SessionVariable)"
-    Write-Debug -Message "`tSession         : $($sRest.Session)"
-
+		
     # The intermediate $result is used to avoid returning a PSMemberSet
     Try
     {
@@ -93,35 +127,65 @@ function Invoke-RavRest
     }
     Catch
     {
-      Write-Debug 'Invoke-RestMethod exception'
-      Write-Debug "`tCode = $([int]$_.Exception.Response.StatusCode)"
-      Write-Debug "`tMsg  = $($_.Exception.Response.StatusDescription)"
-      Throw "$([int]$_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)"
+      $excpt = $_.Exception
+
+      Write-Debug 'Exception'
+      Write-Debug "`tERROR-CODE = $($excpt.Response.Headers['ERROR-CODE'])"
+      Write-Debug "`tERROR-CODE = $($excpt.Response.Headers['ERROR-MESSAGE'])"
+      Throw "$($excpt.Response.Headers['ERROR-CODE']) $($excpt.Response.Headers['ERROR-MESSAGE'])"
     }
     $result
-    Write-Debug 'Leaving Invoke-RavRest'
+    Write-Debug 'Leaving Invoke-hRavelloRest'
   }
 }
 
 # .ExternalHelp Ravello-Help.xml
-function Get-AuthHeader
+function Get-hRavelloAuthHeader
 {
   [CmdletBinding()]
-  param()
-  
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    
+  param ()
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
     $User = $Script:RavelloCredential.UserName
     $Password = $Script:RavelloCredential.GetNetworkCredential().password
-    Write-Verbose "`tUser: $($User)"
-
+		
     $Encoded = [System.Text.Encoding]::UTF8.GetBytes(($User, $Password -Join ':'))
     $EncodedPassword = [System.Convert]::ToBase64String($Encoded)
     Write-Debug "`tEncoded  : $($EncodedPassword)"
-    
+		
     @{
       'Authorization' = "Basic $($EncodedPassword)"
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Update-hRavelloField
+{
+  Param(
+    [PSObject]$Object,
+    [string]$Property,
+    $Value
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if([bool]($Object.PSobject.Properties.name -match $Property))
+    {
+      $Object.$($Property) = $Value
+    }
+    else
+    {
+      $Object | Add-Member -Name $Property -Value $Value -MemberType NoteProperty
     }
   }
 }
@@ -131,37 +195,41 @@ function Get-AuthHeader
 # .ExternalHelp Ravello-Help.xml
 function Import-Ravello
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
     [string]$CliPath = 'C:\Ravello_cli',
-    [Parameter(Mandatory = $true,ParameterSetName = 'ISO')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ISO')]
     [string]$IsoPath,
-    [Parameter(Mandatory = $true,ParameterSetName = 'VM')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'VM')]
     [string]$VmPath,
-    [Parameter(Mandatory = $true,ParameterSetName = 'vSphere')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'vSphere')]
     [string]$EsxVmPath,
-    [Parameter(Mandatory = $true,ParameterSetName = 'vSphere')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'vSphere')]
     [string]$EsxServer,
-    [Parameter(Mandatory = $true,ParameterSetName = 'vSphere')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'vSphere')]
     [System.Management.Automation.PSCredential]$EsxCredential,
-    [Parameter(Mandatory = $true,ParameterSetName = 'vDisk')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'vDisk')]
     [string]$DiskPath
   )
-
-  Begin{
+	
+  Begin
+  {
     $cmd = '#clipath#\ravello.exe #importtype# -u #user#'
   }
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-
-    if(!(Test-Path -Path "$CliPath\ravello.exe"))
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
+    if (!(Test-Path -Path "$CliPath\ravello.exe"))
     {
       Write-Error "Could not find ravello.exe in $($CliPath)"
     }
     else
     {
-      if(!$Script:RavelloCredential)
+      if (!$Script:RavelloCredential)
       {
         Write-Error 'You need to connect to Ravello before uploading files'
       }
@@ -169,18 +237,18 @@ function Import-Ravello
       {
         $User = $Script:RavelloCredential.UserName
         $pswd = $Script:RavelloCredential.GetNetworkCredential().password
-
+				
         $oldRPswd = Get-Item -Path "Env:$($rPswd)" -ErrorAction SilentlyContinue
         $env:RAVELLO_PASSWORD = $pswd
-
-        $cmd = $cmd.Replace('#clipath#',$CliPath)
-        $cmd = $cmd.Replace('#user#',$User)
-
-        if($PSCmdlet.ParameterSetName -eq 'ISO')
+				
+        $cmd = $cmd.Replace('#clipath#', $CliPath)
+        $cmd = $cmd.Replace('#user#', $User)
+				
+        if ($PSCmdlet.ParameterSetName -eq 'ISO')
         {
-          if(Test-Path -Path $IsoPath)
+          if (Test-Path -Path $IsoPath)
           {
-            $cmd = $cmd.Replace('#importtype#','import-disk')
+            $cmd = $cmd.Replace('#importtype#', 'import-disk')
             $cmd = $cmd, $IsoPath -join ' '
           }
           else
@@ -190,10 +258,10 @@ function Import-Ravello
         }
         else
         {
-          $cmd = $cmd.Replace('#importtype#','import')
-          if($PSCmdlet.ParameterSetName -eq 'VM')
+          $cmd = $cmd.Replace('#importtype#', 'import')
+          if ($PSCmdlet.ParameterSetName -eq 'VM')
           {
-            if(Test-Path -Path $VmPath)
+            if (Test-Path -Path $VmPath)
             {
               $cmd = $cmd, $VmPath -join ' '
             }
@@ -202,20 +270,20 @@ function Import-Ravello
               Write-Error "Can't find VM file $($VmPath)"
             }
           }
-          elseif($PSCmdlet.ParameterSetName -eq 'vSphere')
+          elseif ($PSCmdlet.ParameterSetName -eq 'vSphere')
           {
             $vUser = $EsxCredential.UserName
             $vPswd = $EsxCredential.GetNetworkCredential().password
-
+						
             $cmd = $cmd, 
             '--vm_configuration_file_path', """$($EsxVmPath)""", 
             '--server_username', $vUser, 
             '--server_password', $vPswd, 
             '--server_address', $EsxServer -join ' '
           }
-          elseif($PSCmdlet.ParameterSetName -eq 'vDisk')
+          elseif ($PSCmdlet.ParameterSetName -eq 'vDisk')
           {
-            if(Test-Path -Path $DiskPath)
+            if (Test-Path -Path $DiskPath)
             {
               $cmd = $cmd, '--disk', $DiskPath -join ' '
             }
@@ -225,20 +293,16 @@ function Import-Ravello
             }
           }
         }
-
-        Write-Verbose "$($cmd)"
-
+				
         If ($PSCmdlet.ShouldProcess("Importing with $($cmd)"))
         {
-            $result = Invoke-Expression -Command $cmd
-            if(!($result -notmatch 'upload.finished.successfully'))
-            {
-              Write-Warning 'Upload might have failed - check the log'
-            }
-    
-            Write-Verbose "$($result)"
+          $result = Invoke-Expression -Command $cmd
+          if (!($result -notmatch 'upload.finished.successfully'))
+          {
+            Write-Warning 'Upload might have failed - check the log'
+          }
         }
-        if($oldRPswd)
+        if ($oldRPswd)
         {
           $env:RAVELLO_PASSWORD = $oldRPswd
         }
@@ -254,45 +318,47 @@ function Import-Ravello
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloImportHistory
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
     [string]$CliPath = 'C:\Ravello_cli'
   )
-
+	
   Begin
   {
     $cmd = '#clipath#\ravello.exe list -y'
     $pattern = 'name:\s(?<Filename>.+)\s+id:\s(?<Id>\d+)\s+creation time:\s(?<Date>[^\n\r]+)\s+.+ (?<Perc>\d+)%'
   }
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-
-    if(!(Test-Path -Path "$CliPath\ravello.exe"))
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
+    if (!(Test-Path -Path "$CliPath\ravello.exe"))
     {
       Write-Error "Could not find ravello.exe in $($CliPath)"
     }
     else
     {
-      $cmd = $cmd.Replace('#clipath#',$CliPath)
+      $cmd = $cmd.Replace('#clipath#', $CliPath)
       If ($PSCmdlet.ShouldProcess("Listing import jobs with $($cmd)"))
       {
-          Invoke-Expression -Command $cmd |
-          Out-String |
-          Select-String -AllMatches -Pattern $pattern |
-          Select-Object -ExpandProperty Matches |
-          ForEach-Object{
-            $obj = [ordered]@{
-              Filename   = $_.Groups['Filename'].Value
-              JobId      = $_.Groups['Id'].Value
-              Date       = [DateTime]$_.Groups['Date'].Value
-              Percentage = $_.Groups['Perc'].Value
-            }
-            New-Object -TypeName PSObject -Property $obj
+        Invoke-Expression -Command $cmd |
+        Out-String |
+        Select-String -AllMatches -Pattern $pattern |
+        Select-Object -ExpandProperty Matches |
+        ForEach-Object{
+          $obj = [ordered]@{
+            Filename   = $_.Groups['Filename'].Value
+            JobId      = $_.Groups['Id'].Value
+            Date       = [DateTime]$_.Groups['Date'].Value
+            Percentage = $_.Groups['Perc'].Value
           }
-       }
-    }  
+          New-Object -TypeName PSObject -Property $obj
+        }
+      }
+    }
   }
 }
 
@@ -302,43 +368,79 @@ function Get-RavelloImportHistory
 # .ExternalHelp Ravello-Help.xml
 function Connect-Ravello
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,
-        ValueFromPipeline = $true,
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True,
+        ValueFromPipeline = $True,
     ParameterSetName = 'Credential')]
     [System.Management.Automation.PSCredential]$Credential,
-    [Parameter(Mandatory = $true,
+    [Parameter(Mandatory = $True,
     ParameterSetName = 'PlainText')]
     [String]$User,
-    [Parameter(Mandatory = $true,
+    [Parameter(Mandatory = $True,
     ParameterSetName = 'PlainText')]
     [String]$Password,
-    [string]$Proxy
+    [string]$Proxy,
+    [Parameter(DontShow)]
+    [switch]$Fiddler = $false
   )
-  
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($Proxy)
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($Proxy)
     {
-        $PSDefaultParameterValues = @{
-            'Invoke-RestMethod:Proxy'    = 'http://proxy.mas.eurocontrol.int:8080'
-            '*:ProxyUseDefaultCredentials' = $true
-        }
+      if ($PSDefaultParameterValues.ContainsKey('*:Proxy'))
+      {
+        $PSDefaultParameterValues['*:Proxy'] = $Proxy
+      }
+      else
+      {
+        $PSDefaultParameterValues.Add('*:Proxy', $Proxy)
+      }
+      if ($PSDefaultParameterValues.ContainsKey('*:ProxyUseDefaultCredentials'))
+      {
+        $PSDefaultParameterValues['*:ProxyUseDefaultCredentials'] = $True
+      }
+      else
+      {
+        $PSDefaultParameterValues.Add('*:ProxyUseDefaultCredentials', $True)
+      }
     }
-    if($PSCmdlet.ParameterSetName -eq 'PlainText')
+    if ($PSCmdlet.ParameterSetName -eq 'PlainText')
     {
       $sPswd = ConvertTo-SecureString -String $Password -AsPlainText -Force
-      $Script:RavelloCredential = New-Object System.Management.Automation.PSCredential ($User, $sPswd)
+      $Script:RavelloCredential = New-Object System.Management.Automation.PSCredential -ArgumentList ($User, $sPswd)
     }
-    if($PSCmdlet.ParameterSetName -eq 'Credential')
+    if ($PSCmdlet.ParameterSetName -eq 'Credential')
     {
       $Script:RavelloCredential = $Credential
     }
-    $Script:AuthHeader = Get-AuthHeader
-    If ($PSCmdlet.ShouldProcess("Connecting to Ravello"))
+    $Script:AuthHeader = Get-hRavelloAuthHeader
+    $sConnect = @{
+      Method  = 'Post'
+      Request = 'login'
+    }
+    if ($Fiddler)
     {
-        Invoke-RavRest -Method Post -Request 'login'
+      if (Get-Process -Name fiddler -ErrorAction SilentlyContinue)
+      {
+        if ($PSDefaultParameterValues.ContainsKey('Invoke-RestMethod:Proxy'))
+        {
+          $PSDefaultParameterValues['Invoke-RestMethod:Proxy'] = 'http://127.0.0.1:8888'
+        }
+        else
+        {
+          $PSDefaultParameterValues.Add('Invoke-RestMethod:Proxy', 'http://127.0.0.1:8888')
+        }
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Connecting to Ravello'))
+    {
+      Invoke-hRavelloRest @sConnect
     }
   }
 }
@@ -346,78 +448,93 @@ function Connect-Ravello
 # .ExternalHelp Ravello-Help.xml
 function Disconnect-Ravello
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param()
-  
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    If ($PSCmdlet.ShouldProcess("Disconnecting from Ravello"))
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param ()
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    If ($PSCmdlet.ShouldProcess('Disconnecting from Ravello'))
     {
-        Invoke-RavRest -Method Post -Request 'logout'
-    
-        # Issue with Invoke-RestMethod (see Connect #836732) 
-        $servicePoint = [System.Net.ServicePointManager]::FindServicePoint($RavelloBaseUrl)
-        [void]$servicePoint.CloseConnectionGroup('') 
-        
-        Remove-Variable -Name 'RavelloCredential' -Scope Script -Confirm:$false
-        Remove-Variable -Name 'RavelloSession' -Scope Script -Confirm:$false
+      Invoke-hRavelloRest -Method Post -Request 'logout'
+			
+      # Issue with Invoke-RestMethod (see Connect #836732) 
+      $servicePoint = [System.Net.ServicePointManager]::FindServicePoint($RavelloBaseUrl)
+      [void]$servicePoint.CloseConnectionGroup('')
+			
+      Remove-Variable -Name 'RavelloCredential' -Scope Script -Confirm:$false
+      Remove-Variable -Name 'RavelloSession' -Scope Script -Confirm:$false
     }
   }
 }
 #endregion
 
 #region Applications
+# .ExternalHelp Ravello-Help.xml
 function Get-RavelloApplication
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmAll')]
-    [Parameter(ParameterSetName = 'Default')]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'All')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameDesign')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameDeployment')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameProperties')]
     [string]$ApplicationName,
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmId')]
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmName')]
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmAll')]
-    [Parameter(ParameterSetName = 'Default')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppId')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdDesign')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdDeployment')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdProperties')]
     [Alias('id')]
     [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameDesign')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdDesign')]
     [Switch]$Design,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameDeployment')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdDeployment')]
     [Switch]$Deployment,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameProperties')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdProperties')]
     [Switch]$Properties,
-    [Parameter(ParameterSetName = 'AppId-VmAll')]
-    [Parameter(ParameterSetName = 'AppName-VmAll')]
-    [Switch]$AllVm,
-    [Parameter(ParameterSetName = 'AppId-VmName')]
-    [Parameter(ParameterSetName = 'AppName-VmName')]
-    [string]$VmName,
-    [Parameter(ParameterSetName = 'AppId-VmId')]
-    [Parameter(ParameterSetName = 'AppName-VmId')]
-    [long]$VmId,
     [Parameter(DontShow)]
     [switch]$Raw
   )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    Write-Verbose "$($PSCmdlet.ParameterSetName)"
+	
+  Process
+  {
     $sApp = @{
       Method  = 'Get'
       Request = 'applications'
     }
 
+    $noParam = $false
+    $appFound = $false
     if($ApplicationName)
     {
-      $ApplicationId = Get-RavelloApplication |
-      Where-Object{
-        $_.Name -eq $ApplicationName
-      } |
-      Select-Object -ExpandProperty id
+      $app = Get-RavelloApplication -Raw | where{$_.name -eq $ApplicationName}
+      if($app)
+      {
+        $sApp.Request = $sApp.Request,"$([string]$app.id)" -join '/'
+        $appFound = $true
+      }
     }
-    if($ApplicationId -ne 0)
+    elseif($ApplicationId -gt 0)
     {
-      $sApp.Request = $sApp.Request, "$([string]$ApplicationId)" -join '/'
-
+      $app = Get-RavelloApplication -Raw | where{$_.id -eq $ApplicationId}
+      if($app)
+      {
+        $sApp.Request = $sApp.Request,"$([string]$app.id)" -join '/'
+        $appFound = $True
+      }
+    }
+    else
+    {
+        $noParam = $true
+    }
+    if($noParam -or $appFound)
+    {
       if($Design)
       {
         $sApp.Request = $sApp.Request, 'design' -join ';'
@@ -430,77 +547,14 @@ function Get-RavelloApplication
       {
         $sApp.Request = $sApp.Request, 'properties' -join ';'
       }
-
-      if($VmName)
+      If ($PSCmdlet.ShouldProcess('Retrieving Application'))
       {
-        $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design
-        $VmId = $app.design.vms |
-        Where-Object{
-          $_.name -eq $VmName
-        } |
-        Select-Object -ExpandProperty id                
-      }
-      if($VmId)
-      {
-        $sApp.Request = $sApp.Request, 'vms', "$([string]$VmId)" -join '/'
-      }
-      if($AllVm)
-      {
-        $sApp.Request = $sApp.Request, 'vms' -join '/'
-      }
-  
-      If ($PSCmdlet.ShouldProcess("Connecting to Ravello"))
-      {
-          $application = Invoke-RavRest @sApp
-          $application | ForEach-Object{
-            if(!$Raw)
-            {
-                $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-                if($_.nextStopTime)
-                {
-                  $_.nextStopTime = ConvertFrom-JsonDateTime -DateTime $_.nextStopTime
-                }
-                if($_.deployment)
-                {
-                  if($_.deployment.expirationTime)
-                  {
-                    $_.deployment.expirationTime = ConvertFrom-JsonDateTime -DateTime $_.deployment.expirationTime
-                  }
-                  if($_.deployment.publishStartTime)
-                  {
-                    $_.deployment.publishStartTime = ConvertFrom-JsonDateTime -DateTime $_.deployment.publishStartTime
-                  }
-                }
-            }
-          $_
-        }
-      }
-    }
-    elseif($PSCmdlet.ParameterSetName -eq 'Default' -and !$ApplicationName)
-    {
-      $application = Invoke-RavRest @sApp
-
-      $application | ForEach-Object{
-        if(!$Raw)
+        $app = Invoke-hRavelloRest @sApp
+        if (!$Raw)
         {
-        $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-        if($_.nextStopTime)
-        {
-          $_.nextStopTime = ConvertFrom-JsonDateTime -DateTime $_.nextStopTime
+          Convert-hRavelloTimeField -Object $app
         }
-        if($_.deployment)
-        {
-          if($_.deployment.expirationTime)
-          {
-            $_.deployment.expirationTime = ConvertFrom-JsonDateTime -DateTime $_.deployment.expirationTime
-          }
-          if($_.deployment.publishStartTime)
-          {
-            $_.deployment.publishStartTime = ConvertFrom-JsonDateTime -DateTime $_.deployment.publishStartTime
-          }
-        }
-      }
-        $_
+        $app
       }
     }
   }
@@ -509,32 +563,32 @@ function Get-RavelloApplication
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloApplication
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-#    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId')]
-#    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmName')]
-#    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId')]
-#    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmName')]
-    [Parameter(Mandatory = $true)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High', DefaultParameterSetName = 'AllParameterSets')]
+  param (
+    [Parameter(Mandatory = $True)]
     [string]$ApplicationName,
-#    [Parameter(ParameterSetName = 'BpId-VmId',ValueFromPipelineByPropertyName)]
-#    [Parameter(ParameterSetName = 'BpId-VmName',ValueFromPipelineByPropertyName)]
+    [string]$Description,
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId',ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$BlueprintId,
-#    [Parameter(ParameterSetName = 'BpName-VmId')]
-#    [Parameter(ParameterSetName = 'BpName-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName')]
     [string]$BlueprintName,
-#    [Parameter(ParameterSetName = 'BpId-VmId')]
-#    [Parameter(ParameterSetName = 'BpName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'VmId')]
+    #    [Parameter(ParameterSetName = 'BpName')]
+    #    [Parameter(ParameterSetName = 'BpId')]
     [long[]]$VmImageId,
-#    [Parameter(ParameterSetName = 'BpId-VmName')]
-#    [Parameter(ParameterSetName = 'BpName-VmName')]
-    [string[]]$VmImageName,
-    [string]$Description
+    [Parameter(Mandatory = $True, ParameterSetName = 'VmName')]
+    #    [Parameter(ParameterSetName = 'BpName')]
+    #    [Parameter(ParameterSetName = 'BpId')]
+    [string[]]$VmImageName
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     # Create minimal Application
     $sApp = @{
       Method  = 'Post'
@@ -544,26 +598,30 @@ function New-RavelloApplication
         description = $Description
       }
     }
-    If ($PSCmdlet.ShouldProcess("Create application"))
+    if($BlueprintName)
     {
-        $app = Invoke-RavRest @sApp
-        # Customise with Set-RavelloApplication
-        $sApp2 = @{}
-        $PSBoundParameters.GetEnumerator() |
-        Where-Object{
-          $_.Key -notmatch '^Description|^ApplicationName'
-        } |
-        ForEach-Object{
-          $sApp2.Add($_.Key,$_.Value)
-        }
-        if($sApp2.Count -gt 0)
-        {
-            $app | Set-RavelloApplication @sApp2
-        }
-        else
-        {
-          $app
-        }
+      $bp = Get-RavelloBlueprint -BlueprintName $BlueprintName -Raw
+      $BlueprintId = $bp.id
+    }
+    if($BlueprintId -ne 0)
+    {
+      $sApp.Body.Add('baseBlueprintId',$BlueprintId)
+    }
+    if($VmImageName)
+    {
+      $vms = $VmImageName | %{Get-RavelloImage -ImageName $_ -Raw}
+    }
+    if($VmImageId)
+    {
+      $vms = $VmImageId | %{Get-RavelloImage -ImageId $_ -Raw}
+    }
+    if($vms)
+    {
+      $sApp.Body.Add('design',@{'vms'=@($vms)})
+    }
+    If ($PSCmdlet.ShouldProcess('Create application'))
+    {
+      $app = Invoke-hRavelloRest @sApp
     }
   }
 }
@@ -571,45 +629,26 @@ function New-RavelloApplication
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloApplication
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName,
-    [Parameter(ParameterSetName = 'BlueprintId')]
-    [long]$BlueprintId,
-    [Parameter(ParameterSetName = 'BlueprintName')]
-    [string]$BlueprintName,
-    [Parameter(ParameterSetName = 'AppId-VmId')]
-    [Parameter(ParameterSetName = 'AppName-VmId')]
-    [long[]]$VmImageId,
-    [Parameter(ParameterSetName = 'AppId-VmName')]
-    [Parameter(ParameterSetName = 'AppName-VmName')]
-    [string[]]$VmImageName,
-    [Alias('Name')]
     [string]$NewApplicationName,
-    [string]$Description
+    [string]$NewDescription
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($BlueprintName)
+    if ($ApplicationName)
     {
-      $BlueprintId = Get-RavelloBlueprint -Name $BlueprintName | Select-Object -ExpandProperty id
-    }
-    if($BlueprintId)
-    {
-      $sApp.Body.Add('baseBlueprintId',$BlueprintId)
-    }
-    if($ApplicationName)
-    {
-      $app = Get-RavelloApplication -Raw | Where-Object{
-        $_.Name -eq $ApplicationName
-      }
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
       $ApplicationId = $app.id
     }
     else
@@ -621,39 +660,19 @@ function Set-RavelloApplication
       Request = "applications/$($ApplicationId)"
       Body    = $app
     }
-    if($NewApplicationName)
+    if ($NewApplicationName)
     {
       $sApp.Body.name = $NewApplicationName
     }
-
-    if($Description)
+		
+    if ($NewDescription)
     {
-      $sApp.Body.description = $Description
+      $sApp.Body.description = $NewDescription
     }
-
-    if($VmImageName -or $VmImageId)
+		
+    If ($PSCmdlet.ShouldProcess('Changing application'))
     {
-      $img = @()
-      if($VmImageName)
-      {
-        $VmImageName | ForEach-Object{
-          $img += Get-RavelloImage -Name $_ -Raw
-        }
-      }
-      else
-      {
-        $VmImageId | ForEach-Object{
-          $img += Get-RavelloImage -ImageId $_ -Raw
-        }
-      }
-      if(!$sApp.Body.design.vms)
-      {
-        Add-Member -InputObject $sApp.Body.design -Name vms -Value $img -MemberType NoteProperty
-      }
-    }   
-    If ($PSCmdlet.ShouldProcess("Changing application"))
-    {
-        Invoke-RavRest @sApp
+      Invoke-hRavelloRest @sApp
     }
   }
 }
@@ -661,18 +680,22 @@ function Set-RavelloApplication
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloApplication
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId')]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppId')]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName
   )
-  
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($ApplicationName)
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
     {
       $app = Get-RavelloApplication -ApplicationName $ApplicationName
       $ApplicationId = $app.id
@@ -681,9 +704,9 @@ function Remove-RavelloApplication
       Method  = 'Delete'
       Request = "applications/$($ApplicationId)"
     }
-    If ($PSCmdlet.ShouldProcess("Removing application"))
+    If ($PSCmdlet.ShouldProcess('Removing application'))
     {
-        Invoke-RavRest @sApp
+      Invoke-hRavelloRest @sApp
     }
   }
 }
@@ -691,16 +714,20 @@ function Remove-RavelloApplication
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloApplicationPublishLocation
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
     [string]$PreferredCloud
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     $sApp = @{
       Method  = 'Post'
       Request = "applications/$($ApplicationId)/findPublishLocations"
@@ -708,14 +735,14 @@ function Get-RavelloApplicationPublishLocation
         id = $ApplicationId
       }
     }
-
-    if($PreferredCloud)
+		
+    if ($PreferredCloud)
     {
-      $sApp.Body.Add('preferredCloud',$PreferredCloud)
+      $sApp.Body.Add('preferredCloud', $PreferredCloud)
     }
-    If ($PSCmdlet.ShouldProcess("Find application publishing site"))
-    {    
-        Invoke-RavRest @sApp
+    If ($PSCmdlet.ShouldProcess('Find application publishing site'))
+    {
+      Invoke-hRavelloRest @sApp
     }
   }
 }
@@ -723,27 +750,39 @@ function Get-RavelloApplicationPublishLocation
 # .ExternalHelp Ravello-Help.xml
 function Publish-RavelloApplication
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppId')]
     [Alias('id')]
     [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName,
     [ValidateScript({
-          (Get-RavelloApplication | Get-RavelloApplicationPublishLocation).cloudName -contains $_
+        ((Get-RavelloApplication -ApplicationName $ApplicationName),(Get-RavelloApplication -ApplicationId $ApplicationId) |
+        Get-RavelloApplicationPublishLocation).cloudName -contains $_
     })]
     [string]$PreferredCloud,
     [ValidateScript({
-          (Get-RavelloApplication | Get-RavelloApplicationPublishLocation).regionName -contains $_
+        ((Get-RavelloApplication -ApplicationName $ApplicationName),(Get-RavelloApplication -ApplicationId $ApplicationId) |
+        Get-RavelloApplicationPublishLocation | where{$_.cloudName -eq $PreferredCloud}).regionName -contains $_
     })]
     [string]$PreferredRegion,
-    [ValidateSet('COST_OPTIMIZED','PERFORMANCE_OPTIMIZED')]
+    [ValidateSet('COST_OPTIMIZED', 'PERFORMANCE_OPTIMIZED')]
     [string]$OptimizationLevel,
     [Switch]$StartAllVM = $false
   )
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
     $sApp = @{
       Method  = 'Post'
       Request = "applications/$($ApplicationId)/publish"
@@ -752,21 +791,21 @@ function Publish-RavelloApplication
         startAllVms = ([string]$StartAllVM).ToLower()
       }
     }
-    if($PreferredCloud)
+    if ($PreferredCloud)
     {
-      $sApp.Body.Add('preferredCloud',$PreferredCloud)
+      $sApp.Body.Add('preferredCloud', $PreferredCloud)
     }
-    if($PreferredRegion)
+    if ($PreferredRegion)
     {
-      $sApp.Body.Add('preferredRegion',$PreferredRegion)
+      $sApp.Body.Add('preferredRegion', $PreferredRegion)
     }
-    if($OptimizationLevel)
+    if ($OptimizationLevel)
     {
-      $sApp.Body.Add('optimizationLevel',$OptimizationLevel)
+      $sApp.Body.Add('optimizationLevel', $OptimizationLevel)
     }
-    If ($PSCmdlet.ShouldProcess("Publish application"))
+    If ($PSCmdlet.ShouldProcess('Publish application'))
     {
-        Invoke-RavRest @sApp
+      Invoke-hRavelloRest @sApp
     }
   }
 }
@@ -774,81 +813,723 @@ function Publish-RavelloApplication
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloApplicationVmVnc
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName',ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
     [string]$ApplicationName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
     [string]$VmName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sApp = @{
+      Method = 'Get'
+    }
+    if ($ApplicationName -and $ApplicationId -eq 0)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      if ($app)
+      {
+        $ApplicationId = $app.id
+      }
+    }
+    elseif ($ApplicationId -ne 0)
+    {
+      $app = Get-RavelloApplication -ApplicationId $ApplicationId
+    }
+    if ($VmId -ne 0)
+    {
+      $vm = Get-RavelloApplication -ApplicationId $app.id -VmId $VmId -Deployment
+      if ($vm.State -eq 'STARTED')
+      {
+        $sApp.Request = "applications/$($ApplicationId)/vms/$($VmId)/vncUrl"
+        If ($PSCmdlet.ShouldProcess('Get VNC Url'))
+        {
+          Invoke-hRavelloRest @sApp
+        }
+      }
+    }
+    elseif ($app.deployment.vms -and $VmName)
+    {
+      $app.deployment.vms |
+      Where-Object{
+        $_.State -eq 'STARTED' -and $_.Name -eq $VmName 
+      } |
+      ForEach-Object{
+        $sApp.Request = "applications/$($ApplicationId)/vms/$($_.id)/vncUrl"
+        If ($PSCmdlet.ShouldProcess('Get VNC Url'))
+        {
+          Invoke-hRavelloRest @sApp
+        }
+      }
+    }
+    elseif ($app.deployment.vms)
+    {
+      $app.deployment.vms |
+      Where-Object{
+        $_.State -eq 'STARTED' 
+      } |
+      ForEach-Object{
+        $sApp.Request = "applications/$($ApplicationId)/vms/$($_.id)/vncUrl"
+        If ($PSCmdlet.ShouldProcess('Get VNC Url'))
+        {
+          New-Object -TypeName PsObject -Property @{
+            VmName = $_.Name
+            VncUrl = (Invoke-hRavelloRest @sApp)
+          }
+        }
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationCharge
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-Design', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-Design')]
+    [Alias('name')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-Design')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-Design')]
+    [ValidateSet('COST_OPTIMIZED','PERFORMANCE_OPTIMIZED')]
+    [string]$Optimization,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-Design')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-Design')]
+    [ValidateSet('AMAZON','GOOGLE')]
+    [string]$Cloud,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-Design')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-Design')]
+    [ValidateSet('Virginia','Oregon','Northern California','Ireland','Singapore','Frankfurt',
+    'Sydney','Tokyo','SaoPaulo (AMAZON)','us-central1','europe-west1','asia-east1 (GOOGLE)')]
+    [string]$Region
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    $sApp = @{
+      Method  = 'Post'
+      Request = "applications/$($ApplicationId)/calcPrice;deployment"
+    }
+    if('AppName-Design', 'AppId-Design' -contains $PSCmdlet.ParameterSetName)
+    {
+      $sApp.Add('Body',@{
+          'optimizationLevel' = $Optimization
+          'cloudName'       = $Cloud
+          'regionDisplayName' = $Region
+      })
+      $sApp.Request = $sApp.Request.Replace('deployment','design')
+    }
+    If ($PSCmdlet.ShouldProcess('Get application charges'))
+    {
+      Invoke-hRavelloRest @sApp
+    }
+    
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationVmFqdn
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
     [long]$VmId
   )
 
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
     $sApp = @{
       Method = 'Get'
     }
-    if($ApplicationName -and !$ApplicationId)
+    if($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw
+      $ApplicationId = $app.id
+    }
+    $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
+    $vm = $app.deployment.vms | where{$_.name -eq $VmName -or $_.id -eq $ApplicationId}
+    if($vm){
+      $sApp = @{
+        Method  = 'Get'
+        Request = "applications/$($app.id)/vms/$($vm.id)/fqdn;deployment"
+      }
+      If ($PSCmdlet.ShouldProcess('Get VM FQDN'))
+      {
+        Invoke-hRavelloRest @sApp
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationVmState
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
     {
       $app = Get-RavelloApplication -ApplicationName $ApplicationName
-      if($app)
-      {
-        $ApplicationId = $app.id
+      $ApplicationId = $app.id
+    }
+    if($VmName)
+    {
+      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName
+      $VmId = $vm.id
+    }
+    $sApp = @{
+      Method  = 'Get'
+      Request = "applications/$($ApplicationId)/vms/$($VmId)/state;deployment"
+    }
+    If ($PSCmdlet.ShouldProcess('Get VM state'))
+    {
+      Invoke-hRavelloRest @sApp
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationVmPublicIp
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sApp = @{
+      Method = 'Get'
+    }
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    if($VmName)
+    {
+      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName
+      $VmId = $vm.id
+    }
+    $sApp = @{
+      Method  = 'Get'
+      Request = "applications/$($ApplicationId)/vms/$($VmId)/publicIps;deployment"
+    }
+    If ($PSCmdlet.ShouldProcess('Get Public IPs'))
+    {
+      Invoke-hRavelloRest @sApp
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Test-RavelloApplicationPublished
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    $sApp = @{
+      Method  = 'Get'
+      Request = "applications/$($ApplicationId)/isPublished"
+    }
+    If ($PSCmdlet.ShouldProcess('Test if application is published'))
+    {
+      [Boolean](Invoke-hRavelloRest @sApp).Value
+    }
+        
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Add-RavelloApplicationVm
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-ImageId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-ImageName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-ImageId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-ImageName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-ImageName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-ImageName')]
+    [string]$ImageName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-ImageId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-ImageId')]
+    [long]$ImageId,
+    [string]$NewVmName,
+    [string]$NewVmDescription,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    if($ImageName)
+    {
+      $image = Get-RavelloImage -ImageName $ImageName
+      $ImageId = $image.id
+    }
+    $sApp = @{
+      Method  = 'Post'
+      Request = "applications/$($ApplicationId)/vms"
+      Body    = @{
+        'baseVmId' = $ImageId
       }
     }
-    elseif($ApplicationId -ne 0)
+    If ($PSCmdlet.ShouldProcess('Add VM image to application'))
     {
-        $app = Get-RavelloApplication -ApplicationId $ApplicationId
-    }
-    if($VmId -ne 0)
-    {
-      Write-Verbose "`tParam VmId used - VM id: $($VmId)"
-      $vm = Get-RavelloApplication -ApplicationId $app.id -VmId $VmId -Deployment
-      if($vm.State -eq 'STARTED')
+      $app = Invoke-hRavelloRest @sApp
+      if(!$Raw)
       {
-          $sApp.Request = "applications/$($ApplicationId)/vms/$($VmId)/vncUrl"
-          If ($PSCmdlet.ShouldProcess("Get VNC Url"))
-          {
-            Invoke-RavRest @sApp
-          }
+        Convert-hRavelloTimeField -Object $app
       }
+      $app
     }
-    elseif($app.deployment.vms -and $VmName)
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationVm
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId,
+    [Switch]$Deployment,
+    [Switch]$Design,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if($ApplicationName)
     {
-      $app.deployment.vms |
-      Where-Object{$_.State -eq 'STARTED' -and $_.Name -eq $VmName} |
-      ForEach-Object{
-        Write-Verbose "`tVM id: $($_.id)"
-        $sApp.Request = "applications/$($ApplicationId)/vms/$($_.id)/vncUrl"
-        If ($PSCmdlet.ShouldProcess("Get VNC Url"))
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw
+      $ApplicationId = $app.id
+    }
+    if($VmName)
+    {
+      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
+      $VmId = $app.design.vms |
+      where{$_.name -eq $VmName} | Select -ExpandProperty id
+    }
+    $sAppVm = @{
+      Method  = 'Get'
+      Request = "applications/$($ApplicationId)/vms/$($VmId)"
+    }
+    if($Design)
+    {
+      $sAppVm.Request = $sAppVm.Request,'design' -join ';'
+    }
+    if($Deployment)
+    {
+      $sAppVm.Request = $sAppVm.Request,'deployment' -join ';'
+    }
+    If ($PSCmdlet.ShouldProcess('Get Application VM'))
+    {
+      $vm = Invoke-hRavelloRest @sAppVm
+      if(!$Raw)
+      {
+        Convert-hRavelloTimeField -Object $vm
+      }
+      $vm
+    } 
+  }   
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloApplicationVm
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId,
+    [string]$NewName,
+    [string]$NewDescription
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+    
+    $sApp = @{
+      'Raw' = $True
+    }
+    $PSBoundParameters.GetEnumerator() |
+    Where-Object{
+      $_.Key -match '^Application'
+    } |
+    ForEach-Object{
+      $sApp.Add($_.Key, $_.Value)
+    }
+    $app = Get-RavelloApplication @sApp
+    $vms = @()
+    $vms += $app.Design.Vms | ForEach-Object{
+      if($_.id -eq $VmId -or $_.name -eq $VmName)
+      {
+        if($NewName)
         {
-            Invoke-RavRest @sApp
+          $_.name = $NewName
+        }
+        if($NewDescription)
+        {
+          $_.Description = $NewDescription
         }
       }
+      $_
     }
-    elseif($app.deployment.vms)
+    Update-hRavelloField -Object $app.design -Property 'vms' -Value $vms
+    #    if($app.design.psobject.Properties.name -match '^vms$')
+    #    {
+    #      $app.design.vms = $vms
+    #    }
+    #    else
+    #    {
+    #      $app.design | Add-Member -Name vms -Value $vms -MemberType NoteProperty
+    #    }
+    $sApp = @{
+      Method  = 'Put'
+      Request = "applications/$($app.id)"
+      Body    = $app
+    }
+    If ($PSCmdlet.ShouldProcess('Changing application VM'))
     {
-      $app.deployment.vms | 
-      where-Object{$_.State -eq 'STARTED'} | %{
-        Write-Verbose "`tVM id: $($_.id)"
-        $sApp.Request = "applications/$($ApplicationId)/vms/$($_.id)/vncUrl"
-        If ($PSCmdlet.ShouldProcess("Get VNC Url"))
-        {
-            New-Object -TypeName PsObject -Property @{
-                VmName = $_.Name
-                VncUrl = (Invoke-RavRest @sApp)
-            }
-        }
+      $app = Invoke-hRavelloRest @sApp
+      if(!$Raw)
+      {
+        Convert-hRavelloTimeField -Object $app
       }
+      $app
+    }
+  }   
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloApplicationVm
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw
+      $ApplicationId = $app.id
+    }
+    if($VmName)
+    {
+      $vm = $app.design.vms | where{$_.name -eq $VmName}
+#      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName -Raw
+      $VmId = $vm.id
+    }
+    $sApp = @{
+      Method  = 'Delete'
+      Request = "applications/$($ApplicationId)/vms/$($VmId)"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove VM from application'))
+    {
+      Invoke-hRavelloRest @sApp
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    $sApp = @{
+      Method  = 'Get'
+      Request = "applications/$($ApplicationId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Get application documentation'))
+    {
+      Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloApplicationDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    $sApp = @{
+      Method  = 'Post'
+      Request = "applications/$($ApplicationId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set application documentation'))
+    {
+      Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloApplicationDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    $sApp = @{
+      Method  = 'Put'
+      Request = "applications/$($ApplicationId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set application documentation'))
+    {
+      Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloApplicationDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      $ApplicationId = $app.id
+    }
+    $sApp = @{
+      Method  = 'Delete'
+      Request = "applications/$($ApplicationId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove application documentation'))
+    {
+      Invoke-hRavelloRest @sApp
     }
   }
 }
@@ -856,107 +1537,118 @@ function Get-RavelloApplicationVmVnc
 # .ExternalHelp Ravello-Help.xml
 function Invoke-RavelloApplicationAction
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId',ValueFromPipelineByPropertyName = $true)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName',ValueFromPipelineByPropertyName = $true)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName = $True)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId',ValueFromPipelineByPropertyName = $true)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName',ValueFromPipelineByPropertyName = $true)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName', ValueFromPipelineByPropertyName = $True)]
     [string]$ApplicationName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId')]
-    [long]$VmId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName')]
-    [string]$VmName,
-    [ValidateSet('PublishUpdates','Start','Stop','Restart','Redeploy','Repair','ResetDisks','Shutdown','Poweroff')] 
+    [ValidateSet('PublishUpdates', 'Start', 'Stop', 'Restart', 'ResetDisks')]
     [String]$Action,
-    [long]$ExpirationFromNowSeconds
+    [switch]$StartAllVms = $false
   )
-
+	
   process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-
-    $sTime = @{}
-    $PSBoundParameters.GetEnumerator() |
-    Where-Object{
-      $_.Key -notmatch '^Vm|^Action'
-    } |
-    ForEach-Object{
-      $sTime.Add($_.Key,$_.Value)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
+    if($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      $ApplicationId = $app | Select-Object -ExpandProperty id
     }
-    Set-RavelloApplicationTimeout @sTime
-
-    $Action = $Action.ToLower().Replace('resetdisks','resetDisks')
-        
+    if($ApplicationId -and !$app)
+    {
+      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
+    }
+		
+    $Action = $Action.ToLower().Replace('publishupdates', 'publishUpdates').Replace('resetdisks','resetDisks')
+		
     $sApp = @{
+      Method  = 'Post'
+      Request = "applications/$($ApplicationId)/$($Action)?startAllDraftVms=$(($StartAllVms.ToString()).ToLower())"
+    }
+    If ($PSCmdlet.ShouldProcess('Take action on VM'))
+    {
+      Invoke-hRavelloRest @sApp
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Invoke-RavelloApplicationVMAction
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName = $True)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName', ValueFromPipelineByPropertyName = $True)]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName', ValueFromPipelineByPropertyName = $True)]
+    [string[]]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId', ValueFromPipelineByPropertyName = $True)]
+    [long[]]$VmId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName', ValueFromPipelineByPropertyName = $True)]
+    [ValidateSet('stop', 'start', 'shutdown', 'poweroff', 'restart', 'redeploy', 'repair', 'resetDisk')]
+    [string]$Action
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
+    if($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      $ApplicationId = $app | Select-Object -ExpandProperty id
+    }
+    if($ApplicationId -and !$app)
+    {
+      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
+    }
+
+    if($VmName)
+    {
+      $VmId = $app.design.vms |
+      Where-Object{
+        $VmName -contains $_.Name
+      } |
+      Select-Object -ExpandProperty id
+    }
+
+    $sVM = @{
       Method = 'Post'
-      Body   = @{
-        ids = @()
-      }
     }
-    if($ApplicationName -and !$ApplicationId)
+
+    if($VmId.Count -gt 1)
     {
-      $app = Get-RavelloApplication -Name $ApplicationName -Deployment
-      if($app)
-      {
-        $ApplicationId = $app.id
+      $ids = @{
+        'ids' = $VmId
       }
-      else
-      {
-        Throw 'Application not found'
-      }
-    }
-    if($VmId -ne 0)
-    {
-      Write-Verbose "`tParam VmId used - VM id: $($VmId)"
-      $sApp.Request = "applications/$($ApplicationId)/vms/$($Action)"
-      $sApp.Body.ids += $VmId
-    }
-    elseif($VmName -eq '' -and $VmId -eq 0)
-    {
-      Write-Verbose 'Action on all VMs'
-      if( -notcaontains $Action)
-      {
-        Throw
-      }
-      if($Action -eq 'ResetDisks')
-      {
-        Throw 'ResetDisks action requires a VmName or a VmId'
-      }
-      $sApp.Body.Remove('ids')
-      $sApp.Body.Add('id',$ApplicationId)
-      $sApp.Request = "applications/$($ApplicationId)/$($Action)"
-    }
-    elseif($app.deployment.vms)
-    {
-      if($app.deployment.vms.name -contains $VmName)
-      {
-        $app.deployment.vms |
-        Where-Object{
-          $_.Name -eq $VmName
-        } |
-        ForEach-Object{
-          Write-Verbose "`tVM id: $($_.id)"
-          $sApp.Body.ids += $_.id
-        }
-        $sApp.Request = "applications/$($ApplicationId)/vms/$($Action)"
-      }
-      else
-      {
-        Throw 'VM not found in application'
-      }
+      $sVM.Add('Request',"applications/$($ApplicationId)/vms/$($Action)")
+      $sVM.Add('Body',$ids)
     }
     else
     {
-      Throw 'No VMs found in application'
+      $sVM.Add('Request',"applications/$($ApplicationId)/vms/$($VmId[0])/$($Action)")
     }
-    If ($PSCmdlet.ShouldProcess("Take action on VM"))
+        
+    If ($PSCmdlet.ShouldProcess('Perform action on VM'))
     {
-        Invoke-RavRest @sApp
+      Invoke-hRavelloRest @sVM
     }
   }
 }
@@ -964,24 +1656,28 @@ function Invoke-RavelloApplicationAction
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloApplicationTimeout
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName',ValueFromPipelineByPropertyName)]
-    [string]$Name,
-    [long]$ExpirationFromNowSeconds = 7200
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName,
+    [long]$ExpirationFromNowSeconds = 7200,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    Write-Verbose "$($PSCmdlet.ParameterSetName)"
-    if($Name -and !$ApplicationId)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
     {
-      $app = Get-RavelloApplication -Name $Name
-      if($app)
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      if ($app)
       {
         $ApplicationId = $app.id
       }
@@ -993,53 +1689,353 @@ function Set-RavelloApplicationTimeout
         expirationFromNowSeconds = $ExpirationFromNowSeconds
       }
     }
-    If ($PSCmdlet.ShouldProcess("Set Application VM timeout"))
+    If ($PSCmdlet.ShouldProcess('Set Application VM timeout'))
     {
-        ConvertFrom-JsonDateTime -DateTime (Invoke-RavRest @sApp)
+      $app = Invoke-hRavelloRest @sApp
+      $app | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
     }
   }
 }
+
+# .ExternalHelp Ravello-Help.xml
+function Test-RavelloApplicationPendingUpdate
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName', ValueFromPipelineByPropertyName)]
+    [string]$ApplicationName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      if ($app)
+      {
+        $ApplicationId = $app.id
+      }
+    }
+    $sApp = @{
+      Method  = 'Get'
+      Request = "applications/$($ApplicationId)/pendingUpdates"
+    }
+    If ($PSCmdlet.ShouldProcess('Test pending Application update'))
+    {
+      Invoke-hRavelloRest @sApp
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloApplicationVmIso
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmName')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmId')]
+    [Alias('id')]
+    [long]$VmId,
+    [string]$DeviceName = 'cdrom'
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sVmCD = @{ }
+    $PSBoundParameters.GetEnumerator() |
+    Where-Object{
+      $_.Key -notmatch '^DeviceName' 
+    } |
+    ForEach-Object{
+      $sVmCD.Add($_.Key, $_.Value)
+    }
+    $vm = Get-RavelloApplicationVm @sVmCD
+    $vm.hardDrives |
+    Where-Object{
+      $_.type -eq 'CDROM' -and $_.name -match $DeviceName 
+    } |
+    ForEach-Object{
+      If ($PSCmdlet.ShouldProcess('Get connected ISO'))
+      {
+        Get-RavelloDiskImage -DiskImageId $_.baseDiskImageId
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloApplicationVmIso
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmNameIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmNameIsoName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmIdIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmIdIsoName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdVmNameIsoId')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdVmNameIsoName')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdVmIdIsoId')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdVmIdIsoName')]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppNameVmIdIsoId')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppNameVmIdIsoName')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdVmIdIsoId')]
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppIdVmIdIsoName')]
+    [long]$VmId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmNameIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmNameIsoName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmNameIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmNameIsoName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmNameIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmIdIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmNameIsoId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmIdIsoId')]
+    [long]$DiskImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmNameIsoName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameVmIdIsoName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmNameIsoName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdVmIdIsoName')]
+    [string]$DiskImageName,
+    [string]$DeviceName = 'cdrom',
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $app = $null
+    if($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      $ApplicationId = $app | Select-Object -ExpandProperty id
+    }
+    if($ApplicationId -and !$app)
+    {
+      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
+    }
+    if($VmName)
+    {
+      $VmId = $app.design.vms |
+      Where-Object{
+        $_.Name -eq $VmName
+      } |
+      Select-Object -ExpandProperty id
+    }
+    if($DiskImageName)
+    {
+      $img = Get-RavelloDiskImage -DiskImageName $DiskImageName -Raw
+      $DiskImageId = $img | Select-Object -ExpandProperty id
+    }
+    if($DiskImageId -and !$img)
+    {
+      $img = Get-RavelloDiskImage -DiskImageId $DiskImageId -Raw
+    }
+    $updVm = @()
+    foreach($vm in $app.design.vms)
+    {
+      if($vm.Name -eq $VmName -or $vm.id -eq $VmId)
+      {
+        $newDev = @()
+        foreach($dev in $vm.hardDrives)
+        {
+          if($dev.type -eq 'CDROM' -and $dev.name -match $DeviceName)
+          {
+            $dev.size.value = $img.size.value
+            $dev.size.unit = $img.size.unit
+            if($dev.PSObject.Properties['baseDiskImageId'])
+            {
+              $dev.baseDiskImageId = $img.id
+            }
+            else
+            {
+              Add-Member -InputObject $dev -Name 'baseDiskImageId' -Value $img.id -MemberType NoteProperty
+            }
+            if($dev.PSObject.Properties['baseDiskImageName'])
+            {
+              $dev.baseDiskImageName = $img.name
+            }
+            else
+            {
+              Add-Member -InputObject $dev -Name 'baseDiskImageName' -Value $img.name -MemberType NoteProperty
+            }
+          }
+          $newDev += $dev
+        }
+        $vm.hardDrives = $newDev
+      }
+      $updVm += $vm
+    }
+
+    $app.design.vms = $updVm
+    $sApp = @{
+      Method  = 'Put'
+      Request = "applications/$($app.id)"
+      Body    = $app
+    }
+    #        $sApp.Body.creationtime = 
+    If ($PSCmdlet.ShouldProcess('Connect ISO to VM'))
+    {
+      $app = Invoke-hRavelloRest @sApp
+      if(!$Raw)
+      {
+        Convert-hRavelloTimeField -Object $app
+      }
+      $app
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloApplicationOrderGroup
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName, ParameterSetName = 'AppId')]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [PSObject[]]$StartOrder,
+    [switch]$Raw
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      $ApplicationId = $app | Select-Object -ExpandProperty id
+    }
+    if($ApplicationId -and !$app)
+    {
+      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
+    }
+    if($StartOrder)
+    {
+      $groups = @()
+      $i = 1
+      $StartOrder | ForEach-Object{
+        $group = New-Object PSObject -Property @{
+          id    = $i
+          name  = $_.Name
+          order = $i
+          delay = $_.DelaySeconds
+        }
+        if($_.VM)
+        {
+          foreach($vm in $app.design.vms)
+          {
+            if($_.VM -contains $vm.name)
+            {
+              Update-hRavelloField -Object $vm -Property 'vmOrderGroupId' -Value $group.id
+            }
+          }
+        }
+        $groups += $group
+        $i++
+      }
+      Update-hRavelloField -Object $app.design -Property 'vmOrderGroups' -Value $groups 
+    }
+    $sApp = @{
+      Method  = 'Put'
+      Request = "applications/$($app.id)"
+      Body    = $app
+    }
+    If ($PSCmdlet.ShouldProcess('Create startorder groups'))
+    {
+      $app = Invoke-hRavelloRest @sApp
+      Invoke-RavelloApplicationAction -ApplicationId $app.id -Action PublishUpdates -Confirm:$false
+      if(!$Raw)
+      {
+        Convert-hRavelloTimeField -Object $app
+      }
+      $app
+    }
+  }
+}
+
 #endregion Applications
 
 #region Tasks
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloTask
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId',ValueFromPipelineByPropertyName = $true)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName = $True)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName,
-    [long]$TaskId
+    [long]$TaskId,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($ApplicationName)
+    if ($ApplicationName)
     {
-      $ApplicationId = Get-RavelloApplication -Name $ApplicationName | Select-Object -ExpandProperty id
+      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
     }
     $sTask = @{
       Method  = 'Get'
       Request = "applications/$($ApplicationId)/tasks"
     }
-    if($TaskId)
+    if ($TaskId)
     {
-      $sTask.Request = $sTask.Request.Replace('tasks',"tasks/$($TaskId)")
+      $sTask.Request = $sTask.Request.Replace('tasks', "tasks/$($TaskId)")
     }
-    If ($PSCmdlet.ShouldProcess("Retrieve tasks"))
+    If ($PSCmdlet.ShouldProcess('Retrieve tasks'))
     {
-        $tasks = Invoke-RavRest @sTask
-        $tasks | ForEach-Object{
-          $_.ScheduleInfo.start = ConvertFrom-JsonDateTime -DateTime $_.ScheduleInfo.start
-          if($_.scheduleInfo.end)
-          {
-            $_.ScheduleInfo.end = ConvertFrom-JsonDateTime -DateTime $_.ScheduleInfo.end
-          }
+      $tasks = Invoke-hRavelloRest @sTask
+      $tasks | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
           $_
         }
+      }
     }
   }
 }
@@ -1047,34 +2043,56 @@ function Get-RavelloTask
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloTask
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId',ValueFromPipelineByPropertyName = $true)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdStart', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdStop', ValueFromPipelineByPropertyName = $True)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdBP', ValueFromPipelineByPropertyName = $True)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameStart')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameStop')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameBP')]
     [string]$ApplicationName,
-    [Parameter(Mandatory = $true)]
-    [ValidateSet('Stop','Start','Blueprint')]
-    [string]$Action,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdStart')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameStart')]
+    [switch]$StartTask,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdStop')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameStop')]
+    [switch]$StopTask,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdBP')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameBP')]
+    [switch]$BlueprintTask,
     [string]$Description,
     [DateTime]$Start,
     [DateTime]$Finish,
-    [string]$Cron
+    [string]$Cron,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdBP')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameBP')]
+    [switch]$Offline,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppIdBP')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppNameBP')]
+    [string]$BlueprintPrefix,
+    [Parameter(ParameterSetName = 'AppIdBP')]
+    [Parameter(ParameterSetName = 'AppNameBP')]
+    [string]$BlueprintDescription
   )
 
+  	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($ApplicationName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
     {
-      $ApplicationId = Get-RavelloApplication -Name $ApplicationName | Select-Object -ExpandProperty id
+      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
     }
     $sTask = @{
       Method  = 'Post'
       Request = "applications/$($ApplicationId)/tasks"
       Body    = @{
-        action       = $Action.ToUpper()
         scheduleInfo = @{
           start          = ''
           end            = ''
@@ -1083,46 +2101,72 @@ function New-RavelloTask
         description  = ''
       }
     }
-    # seconds in cron expression need to be 0 (zero)
-    if($Start)
+    
+    if('AppIdBP','AppNameBP' -contains $PSCmdlet.ParameterSetName)
     {
-      $Start = $Start.ToUniversalTime().AddSeconds(-$Start.Second)
+        $sTask.Body.Add('action','BLUEPRINT')
+        $args = @{
+            'namePrefix' = $BlueprintPrefix
+            'isOffline' = $Offline.ToString().ToLower()
+        }
+        if($BlueprintDescription)
+        {
+            $args.Add('description',$BlueprintDescription)            
+        }
+        $sTask.Body.Add('args',$args)
     }
-    if($Finish)
+    else
+    {
+        if($StartTask)
+        {
+            $sTask.Body.Add('action','START')
+        }
+        elseif($StopTask)
+        {
+            $sTask.Body.Add('action','STOP')
+        }
+    }
+
+    # seconds in cron expression need to be 0 (zero)
+    if ($Start)
+    {
+      $Start = $Start.ToUniversalTime().AddSeconds(- $Start.Second)
+    }
+    if ($Finish)
     {
       $Finish = $Finish.ToUniversalTime()
     }
     $t = (Get-Date).AddMinutes(10).ToUniversalTime()
-
+		
     # seconds in cron expression need to be 0 (zero)
-    if(!$Cron)
+    if (!$Cron)
     {
       $Cron = "0 $($t.Minute) $($t.Hour) $($t.Day) $($t.Month) ? $($t.Year)"
     }
     $sTask.Body.scheduleInfo.cronExpression = $Cron
-    if($Start -and $Start -ge $t)
+    if ($Start -and $Start -ge $t)
     {
-      $sTask.Body.scheduleInfo.start = ConvertTo-JsonDateTime -Date $Start
+      $sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $Start
     }
-    elseif($Start -and $Start -lt $t)
+    elseif ($Start -and $Start -lt $t)
     {
-      $sTask.Body.scheduleInfo.start = ConvertTo-JsonDateTime -Date $t
+      $sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $t
     }
-    if($Finish -and $Finish -ge $t)
+    if ($Finish -and $Finish -ge $t)
     {
-      $sTask.Body.scheduleInfo.end = ConvertTo-JsonDateTime -Date $Finish
+      $sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $Finish
     }
-    elseif($Finish -and $Finish -lt $t)
+    elseif ($Finish -and $Finish -lt $t)
     {
-      $sTask.Body.scheduleInfo.end = ConvertTo-JsonDateTime -Date $t
+      $sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $t
     }
-    if($Description -ne '')
+    if ($Description -ne '')
     {
       $sTask.Body.description = $Description
     }
-    If ($PSCmdlet.ShouldProcess("Start task"))
+    If ($PSCmdlet.ShouldProcess('Start task'))
     {
-        Invoke-RavRest @sTask
+      Invoke-hRavelloRest @sTask
     }
   }
 }
@@ -1130,94 +2174,64 @@ function New-RavelloTask
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloTask
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'TaskId',ValueFromPipelineByPropertyName = $true)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'TaskId', ValueFromPipelineByPropertyName = $True)]
     [Alias('id')]
     [long]$TaskId,
-    [ValidateSet('Stop','Start','Blueprint')]
-    [string]$Action,
-    [string]$Description,
-    [DateTime]$Start,
-    [DateTime]$Finish,
-    [string]$Cron
+    [string]$NewDescription,
+    [DateTime]$NewStart,
+    [DateTime]$NewFinish,
+    [string]$NewCron
   )
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
     $task = Get-RavelloTask -TaskId $TaskId
     $sTask = @{
       Method  = 'Put'
       Request = "applications/$($task.entityId)/tasks/$($task.id)"
       Body    = @{
+        args         = $task.args
         action       = $task.action
         entityId     = $task.entityId
         entityType   = $task.entityType
         id           = $task.id
-        scheduleInfo = @{
-          start          = ''
-          end            = ''
-          cronExpression = ''
-          args           = $task.scheduleInfo.args
-        }
+        scheduleInfo = $task.scheduleInfo
         description  = $task.description
       }
     }
-    if($Start)
+    if ($NewStart)
     {
-      $Start = $Start.ToUniversalTime().AddSeconds(-$Start.Second)
+      $NewStart = $NewStart.ToUniversalTime().AddSeconds(- $NewStart.Second)
     }
-    elseif($task.scheduleInfo.start -ne $null)
+    if ($NewFinish)
     {
-      $Start = (Get-Date -Second 0).ToUniversalTime()
+      $NewFinish = $NewFinish.ToUniversalTime().AddSeconds(- $NewFinish.Second)
     }
-    if($Finish)
+    if ($NewStart)
     {
-      $Finish = $Finish.ToUniversalTime()
+        $sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $NewStart
     }
-    elseif($task.scheduleInfo.end -ne $null)
+    if ($NewFinish)
     {
-      $Finish = $task.scheduleInfo.end.ToUniversalTime()
+        $sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $NewFinish
     }
-
-    $t = (Get-Date -Second 0).AddMinutes(10).ToUniversalTime()
-
-    $sTask.Body.scheduleInfo.cronExpression = "0 $($t.Minute) $($t.Hour) $($t.Day) $($t.Month) ? $($t.Year)"
-    if($Action)
+    if ($NewDescription)
     {
-      $sTask.Body.action = $Action
+      $sTask.Body.description = $NewDescription
     }
-    if($Start)
+    if($NewCron)
     {
-      if($Start -and $Start -ge $t)
-      {
-        $sTask.Body.scheduleInfo.start = ConvertTo-JsonDateTime -Date $t
-      }
-      elseif($Start -and $Start -lt $t)
-      {
-        $sTask.Body.scheduleInfo.start = ConvertTo-JsonDateTime -Date $Start
-      }
+        $sTask.Body.scheduleInfo.cronExpression
     }
-    if($Finish)
+    If ($PSCmdlet.ShouldProcess('Change task'))
     {
-      if($Finish -and $Finish -ge $t)
-      {
-        $sTask.Body.scheduleInfo.end = ConvertTo-JsonDateTime -Date $Finish
-      }
-      elseif($Finish -and $Finish -lt $t)
-      {
-        $sTask.Body.scheduleInfo.end = ConvertTo-JsonDateTime -Date $t
-      }
-    }
-    if($Description)
-    {
-      $sTask.Body.description = $Description
-    }
-    If ($PSCmdlet.ShouldProcess("Change task"))
-    {
-        Invoke-RavRest @sTask
+      Invoke-hRavelloRest @sTask
     }
   }
 }
@@ -1225,33 +2239,37 @@ function Set-RavelloTask
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloTask
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId',ValueFromPipelineByPropertyName = $true)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId')]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName,
     [long]$TaskId
   )
+	
+  process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($ApplicationName)
+    if ($ApplicationName)
     {
-      $ApplicationId = Get-RavelloApplication -Name $ApplicationName | Select-Object -ExpandProperty id
+      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
     }
     $sTask = @{
       Method  = 'Delete'
       Request = "applications/$($ApplicationId)/tasks"
     }
-    if($TaskId)
+    if ($TaskId)
     {
-      $sTask.Request = $sTask.Request.Replace('tasks',"tasks/$($TaskId)")
+      $sTask.Request = $sTask.Request.Replace('tasks', "tasks/$($TaskId)")
     }
-    If ($PSCmdlet.ShouldProcess("Remove task"))
-    {    
-        Invoke-RavRest @sTask
+    If ($PSCmdlet.ShouldProcess('Remove task'))
+    {
+      Invoke-hRavelloRest @sTask
     }
   }
 }
@@ -1261,22 +2279,28 @@ function Remove-RavelloTask
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloBlueprint
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintId')]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintId')]
     [long]$BlueprintId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintName')]
     [string]$BlueprintName,
-    [Switch]$Private
+    [Switch]$Private,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     $sBlue = @{
       Method  = 'Get'
       Request = 'blueprints'
     }
-    if($BlueprintName)
+    if ($BlueprintName)
     {
       $BlueprintId = Get-RavelloBlueprint |
       Where-Object{
@@ -1284,23 +2308,26 @@ function Get-RavelloBlueprint
       } |
       Select-Object -ExpandProperty id
     }
-    if($BlueprintId)
+    if ($BlueprintId)
     {
-      $sBlue.Request = $sBlue.Request.Replace('blueprints',"blueprints/$($BlueprintId)")
+      $sBlue.Request = $sBlue.Request.Replace('blueprints', "blueprints/$($BlueprintId)")
     }
-    if($Private)
+    if ($Private)
     {
       $org = Get-RavelloOrganization
-      $sBlue.Request = $sBlue.Request.Replace('blueprints',"organizations/$($org.id)/blueprints")
+      $sBlue.Request = $sBlue.Request.Replace('blueprints', "organizations/$($org.id)/blueprints")
     }
-
-    If ($PSCmdlet.ShouldProcess("Retrieve blueprints"))
+		
+    If ($PSCmdlet.ShouldProcess('Retrieve blueprints'))
     {
-        $bp = Invoke-RavRest @sBlue
-        $bp | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_
+      $bp = Invoke-hRavelloRest @sBlue
+      $bp | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -1308,46 +2335,58 @@ function Get-RavelloBlueprint
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloBlueprint
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ApplicationId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ApplicationId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ApplicationName')]
+    [string]$BlueprintName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ApplicationId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ApplicationName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ApplicationName')]
     [string]$ApplicationName,
     [string]$Description = '',
-    [switch]$Offline
+    [switch]$Offline,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-
+	
   Process
   {
-    if($ApplicationName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ApplicationName)
     {
       $ApplicationId = Get-RavelloApplication |
       Where-Object{
-        $_.Name -eq $Name
+        $_.Name -eq $ApplicationName
       } |
       Select-Object -ExpandProperty id
     }
-    if($ApplicationId)
+    if ($ApplicationId)
     {
       $sBlue = @{
         Method  = 'Post'
         Request = 'blueprints'
         Body    = @{
           applicationId = $ApplicationId
-          blueprintName = $Name
+          blueprintName = $BlueprintName
           offline       = ([string]$Offline).ToLower()
           description   = $Description
         }
       }
-      If ($PSCmdlet.ShouldProcess("Create blueprint"))
+      If ($PSCmdlet.ShouldProcess('Create blueprint'))
       {
-          $bp = Invoke-RavRest @sBlue
-          $bp | ForEach-Object{
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-            $_
+        $bp = Invoke-hRavelloRest @sBlue
+        $bp | ForEach-Object{
+          if(!$Raw)
+          {
+            Convert-hRavelloTimeField -Object $_
           }
+          $_
+        }
       }
     }
     else
@@ -1360,21 +2399,22 @@ function New-RavelloBlueprint
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloBlueprintPublishLocation
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$BlueprintId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintName')]
-    [string]$BlueprintName,
-    [string]$PreferredCloud,
-    [string]$PreferredRegion
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintName')]
+    [string]$BlueprintName
   )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-
-    if($BlueprintName)
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+		
+    if ($BlueprintName)
     {
       $BlueprintId = Get-RavelloBlueprint |
       Where-Object{
@@ -1389,18 +2429,18 @@ function Get-RavelloBlueprintPublishLocation
         id = $BlueprintId
       }
     }
-
-    if($PreferredCloud)
+		
+    if ($PreferredCloud)
     {
-      $sBlue.Body.Add('preferredCloud',$PreferredCloud)
+      $sBlue.Body.Add('preferredCloud', $PreferredCloud)
     }
-    if($PreferredRegion)
+    if ($PreferredRegion)
     {
-      $sBlue.Body.Add('preferredRegionCloud',$PreferredRegion)
+      $sBlue.Body.Add('preferredRegionCloud', $PreferredRegion)
     }
-    If ($PSCmdlet.ShouldProcess("Get blueprint publication location"))
+    If ($PSCmdlet.ShouldProcess('Get blueprint publication location'))
     {
-        Invoke-RavRest @sBlue
+      Invoke-hRavelloRest @sBlue
     }
   }
 }
@@ -1408,17 +2448,21 @@ function Get-RavelloBlueprintPublishLocation
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloBlueprint
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintId')]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintId')]
     [long]$BlueprintId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintName')]
     [string]$BlueprintName
   )
+	
+  process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($BlueprintName)
+    if ($BlueprintName)
     {
       $BlueprintId = Get-RavelloBlueprint |
       Where-Object{
@@ -1426,16 +2470,160 @@ function Remove-RavelloBlueprint
       } |
       Select-Object -ExpandProperty id
     }
-    if($BlueprintId)
+    if ($BlueprintId)
     {
       $sBlue = @{
         Method  = 'Delete'
         Request = "blueprints/$($BlueprintId)"
       }
-      If ($PSCmdlet.ShouldProcess("Remove blueprint"))
+      If ($PSCmdlet.ShouldProcess('Remove blueprint'))
       {
-          Invoke-RavRest @sBlue
+        Invoke-hRavelloRest @sBlue
       }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloBlueprintDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$BlueprintId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPName')]
+    [string]$BlueprintName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($BlueprintName)
+    {
+      $bp = Get-RavelloBlueprint -BlueprintName $BlueprintName
+      $BlueprintId = $bp.id
+    }
+    $sBP = @{
+      Method  = 'Get'
+      Request = "blueprints/$($ApplicationId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Get blueprint documentation'))
+    {
+      Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloBlueprintDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$BlueprintId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPName')]
+    [string]$BlueprintName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($BlueprintName)
+    {
+      $bp = Get-RavelloBlueprint -BlueprintName $BlueprintName
+      $BlueprintId = $bp.id
+    }
+    $sBP = @{
+      Method  = 'Post'
+      Request = "blueprints/$($BlueprintId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set blueprint documentation'))
+    {
+      Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloBlueprintDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$BlueprintId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPName')]
+    [string]$BlueprintName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($BlueprintName)
+    {
+      $bp = Get-RavelloBlueprint -BlueprintName $BlueprintName
+      $BlueprintId = $bp.id
+    }
+    $sBP = @{
+      Method  = 'Put'
+      Request = "blueprints/$($BlueprintId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set blueprint documentation'))
+    {
+      Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloBlueprintDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$BlueprintId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'BPName')]
+    [string]$BlueprintName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($BlueprintName)
+    {
+      $bp = Get-RavelloBlueprint -BlueprintName $BlueprintName
+      $BlueprintId = $bp.id
+    }
+    $sBP = @{
+      Method  = 'Delete'
+      Request = "blueprints/$($BlueprintId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove application documentation'))
+    {
+      Invoke-hRavelloRest @sBP
     }
   }
 }
@@ -1445,100 +2633,119 @@ function Remove-RavelloBlueprint
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ImageId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
     [string]$ImageName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'Private')]
     [switch]$Private,
     [Parameter(DontShow)]
     [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     $sImage = @{
       Method  = 'Get'
       Request = 'images'
     }
-
-    if($ImageName)
+		
+    Switch($PSCmdlet.ParameterSetName)
     {
-      $ImageId = Get-RavelloImage |
-      Where-Object{
-        $_.Name -eq $ImageName
-      } |
-      Select-Object -ExpandProperty id
-    }
-    if($ImageId)
-    {
-      $sImage.Request = $sImage.Request.Replace('images',"images/$($ImageId)")
-    }
-    if($Private)
-    {
-      $org = Get-RavelloOrganization
-      $sImage.Request = $sImage.Request.Replace('images',"organizations/$($org.id)/images")
-    }
-    If ($PSCmdlet.ShouldProcess("Get image"))
-    {
-        $image = Invoke-RavRest @sImage
-        $image | ForEach-Object{
-          if(!$Raw)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
+      {
+        'ImageName', 'ImageId' -contains $_
+      }
+      {
+        if($ImageName)
+        {
+          $img = Get-RavelloImage -Raw | Where-Object{
+            $_.Name -eq $ImageName
           }
-          $_
+          $ImageId = $img.id
         }
-     }
+        $sImage.Request = $sImage.Request.Replace('images', "images/$($ImageId)")
+      }
+      'Private'
+      {
+        $org = Get-RavelloOrganization
+        $sImage.Request = $sImage.Request.Replace('images', "organizations/$($org.id)/images")
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Get image'))
+    {
+      $image = Invoke-hRavelloRest @sImage
+      $image | ForEach-Object{
+        if (!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
   }
 }
 
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [string]$Name,
-    [Parameter(Mandatory = $true,ParameterSetName = 'Id',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    #    [string]$Name,
+    [Parameter(Mandatory = $True, ParameterSetName = 'Id', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$AppBpId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ApplicationName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ApplicationName')]
     [string]$ApplicationName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BlueprintName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BlueprintName')]
     [string]$BlueprintName,
     [long]$VmId,
     [string]$VmName,
     [string]$NewImageName,
-    [switch]$Offline = $false
+    [switch]$Offline = $false,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-    
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($AppBpId)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($AppBpId)
     {
-      if(Get-RavelloApplication -ApplicationId $Id -ErrorAction SilentlyContinue)
+      if (Get-RavelloApplication -ApplicationId $AppBpId -Properties -Raw -ErrorAction SilentlyContinue)
       {
         $blueprint = $false
         $ApplicationId = $AppBpId
       }
       else
       {
-        $blueprint = $true
+        $blueprint = $True
         $BlueprintId = $AppBpId
       }
     }
-
-    if($BlueprintId -or $BlueprintName)
+		
+    if ($BlueprintId -or $BlueprintName)
     {
-      if($BlueprintName)
+      $blueprint = $True
+      if ($BlueprintName)
       {
-        $bp = Get-RavelloBlueprint -Name $BlueprintName
-        $Id = $bp.id
+        $bp = Get-RavelloBlueprint -BlueprintName $BlueprintName -Raw
+        $AppBpId = $bp.id
       }
-      if($VmName)
+      else
+      {
+        $bp = Get-RavelloBlueprint -BlueprintId $AppBpId -Raw
+      } 
+      if ($VmName)
       {
         $VmId = $bp.design.vms |
         Where-Object{
@@ -1549,112 +2756,286 @@ function New-RavelloImage
     }
     else
     {
-      if($ApplicationName)
+      $blueprint = $False
+      if ($ApplicationName)
       {
-        $app = Get-RavelloApplication -Name $ApplicationName | Select-Object -ExpandProperty id
+        $AppBpId = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw | select -ExpandProperty id
       }
-      if($VmName)
+      if ($VmName)
       {
-        $VmId = Get-RavelloVM -ApplicationId $Id -VmName $VmName | Select-Object -ExpandProperty id
+        $VmId = Get-RavelloApplicationVm -ApplicationId $AppBpId -VmName $VmName | Select-Object -ExpandProperty id
       }
     }
     $sImage = @{
       Method  = 'Post'
       Request = 'images'
       Body    = @{
-        applicationId = $Id
+        applicationId = $AppBpId
         vmId          = $VmId
         offline       = ($Offline.ToString()).ToLower()
         blueprint     = $blueprint
         imageName     = $NewImageName
       }
     }
-    If ($PSCmdlet.ShouldProcess("Create image"))
+    If ($PSCmdlet.ShouldProcess('Create image'))
     {
-        $image = Invoke-RavRest @sImage
-        $image | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_    
+      $image = Invoke-hRavelloRest @sImage
+      $image | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
-  }    
+  }
 }
 
 # .ExternalHelp Ravello-Help.xml
-function Update-RavelloImage
+function Set-RavelloImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ImageId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
     [string]$ImageName,
-    [string]$Description,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageObj')]
-    [psobject]$Image
-        
+    [string]$NewDescription,
+    [string]$NewName,
+    [long]$NumCpu,
+    [ValidateSet('GB', 'MB', 'KB', 'BYTE')]
+    [string]$MemorySizeUnit,
+    [long]$MemorySize
   )
-    
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($Image)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ImageName)
     {
-      $img = $Image
-    }
-    elseif($ImageName)
-    {
-      $img = Get-RavelloImage -Name $ImageName
+      $img = Get-RavelloImage -ImageName $ImageName -Raw
     }
     else
     {
-      $img = Get-RavelloImage -ImageId $ImageId
+      $img = Get-RavelloImage -ImageId $ImageId -Raw
     }
     $sImage = @{
       Method  = 'Put'
-      Request = "images/$($image.id)"
+      Request = "images/$($img.id)"
       Body    = $img
     }
-    $sImage.Body.creationTime = ConvertTo-JsonDateTime -Date $sImage.Body.creationTime
+    if($NewName)
+    {
+      $sImage.Body.name = $NewName
+    }		
+    if ($NewDescription)
+    {
+      $sImage.Body.description = $NewDescription
+    }
+    if ($NumCpu)
+    {
+      $sImage.Body.numCpus = $NumCpu
+    }
+    if ($MemorySizeUnit)
+    {
+      $sImage.Body.memorySize.unit = $MemorySizeUnit
+    }
+    if ($MemorySize)
+    {
+      $sImage.Body.memorySize.value = $MemorySize
+    }
 
-    if($Description)
+    If ($PSCmdlet.ShouldProcess('Change image'))
     {
-      $sImage.Body.description = $Description
+      Invoke-hRavelloRest @sImage | %{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
     }
-    If ($PSCmdlet.ShouldProcess("Change image"))
-    {
-        Invoke-RavRest @sImage
-    }
-  }    
+  }
 }
 
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ImageId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ImageName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
     [string]$ImageName
   )
+	
+  process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($ImageName)
+    if ($ImageName)
     {
-      $ImageId = Get-RavelloImage -Name $ImageName | Select-Object -ExpandProperty id
+      $ImageId = Get-RavelloImage -ImageName $ImageName | Select-Object -ExpandProperty id
     }
-
+		
     $sImage = @{
       Method  = 'Delete'
       Request = "images/$($ImageId)"
     }
-    If ($PSCmdlet.ShouldProcess("Remove image"))
-    {  
-        Invoke-RavRest @sImage
+    If ($PSCmdlet.ShouldProcess('Remove image'))
+    {
+      Invoke-hRavelloRest @sImage
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
+    [string]$ImageName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ImageName)
+    {
+      $img = Get-RavelloImage -ImageName $ImageName
+      $ImageId = $img.id
+    }
+    $sIm = @{
+      Method  = 'Get'
+      Request = "images/$($ImagesId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Get image documentation'))
+    {
+      Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
+    [string]$ImageName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ImageName)
+    {
+      $img = Get-RavelloImage -ImageName $ImageName
+      $ImageId = $img.id
+    }
+    $sIm = @{
+      Method  = 'Post'
+      Request = "images/$($ImageId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set image documentation'))
+    {
+      Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
+    [string]$ImageName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ImageName)
+    {
+      $img = Get-RavelloImage -ImageName $ImageName
+      $ImageId = $img.id
+    }
+    $sIm = @{
+      Method  = 'Put'
+      Request = "images/$($ImageId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set image documentation'))
+    {
+      Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ImageName')]
+    [string]$ImageName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($ImageName)
+    {
+      $img = Get-RavelloImage -ImageName $ImageName
+      $ImageId = $img.id
+    }
+    $sIm = @{
+      Method  = 'Delete'
+      Request = "images/$($ImageId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove image documentation'))
+    {
+      Invoke-hRavelloRest @sIm
     }
   }
 }
@@ -1664,41 +3045,67 @@ function Remove-RavelloImage
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloDiskImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
     [Parameter(ParameterSetName = 'DiskImageId')]
     [long]$DiskImageId,
     [Parameter(ParameterSetName = 'DiskImageName')]
-    [string]$DiskImageName
+    [string]$DiskImageName,
+    [switch]$SharedWithMe,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($DiskImageName)
+    $p2pValue = 0
+    if($SharedWithMe)
     {
-      $images = Get-RavelloDiskImage
-      $DiskImageId = $images |
-      Where-Object{
+      $p2pValue = 1
+    }
+    if ($DiskImageName)
+    {
+      $image = Get-RavelloDiskImage | Where-Object{
         $_.name -eq $DiskImageName
-      } |
-      Select-Object -ExpandProperty id
+      }
+      if($image)
+      {
+        $DiskImageId = $image.id
+      }
+      else
+      {
+        $DiskImageId = -1
+      }
     }
     $sDiskImage = @{
       Method  = 'Get'
       Request = 'diskImages'
     }
-
-    if($DiskImageId)
+    if ($DiskImageId -gt 0)
     {
-      $sDiskImage.Request = $sDiskImage.Request.Replace('diskImages',"diskImages/$($DiskImageId)")
+      $sDiskImage.Request = $sDiskImage.Request.Replace('diskImages', "diskImages/$($DiskImageId)")
     }
-    If ($PSCmdlet.ShouldProcess("Get disk images"))
+    If ($PSCmdlet.ShouldProcess('Get disk images'))
     {
-        $disk = Invoke-RavRest @sDiskImage
-        $disk  | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
+      if($DiskImageId -ne -1)
+      {
+        $disk = Invoke-hRavelloRest @sDiskImage
+        $disk | 
+        Where-Object{
+          $_.peerToPeerShares -eq $p2pValue
+        } |
+        ForEach-Object{
+          if(!$Raw)
+          {
+            Convert-hRavelloTimeField -Object $_
+          }
           $_
         }
+      }
     }
   }
 }
@@ -1706,102 +3113,122 @@ function Get-RavelloDiskImage
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloDiskImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskName',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-DiskName',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId-DiskId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId-DiskName', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName-DiskId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName-DiskName', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskName',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-DiskName',ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName-DiskName')]
     [string]$ApplicationName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskName',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmName-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmName-DiskName',ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmName-DiskName')]
     [long]$BlueprintId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskName',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmName-DiskId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmName-DiskName',ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmName-DiskName')]
     [string]$BlueprintName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmId-DiskId')]
     [long]$VmId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmNamed-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmName-DiskId')]
     [string]$VmName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmName-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmId-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmName-DiskId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmId-DiskId')]
     [long]$DiskId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId-VmName-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmId-DiskName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName-VmId-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmName-DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId-VmId-DiskName')]
     [string]$DiskName,
+    [Parameter(Mandatory = $True)]
     [string]$NewDiskName,
     [string]$Description,
-    [switch]$Offline = $false
+    [switch]$Offline = $false,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if(!$Id)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if($ApplicationId -gt 0)
     {
-      if($ApplicationName)
-      {
-        $obj = Get-RavelloApplication -Name $ApplicationName
-        $blueprint = $false
-      }
-      elseif($BlueprintName)
-      {
-        $obj = Get-RavelloBlueprint -Name $BlueprintName
-        $blueprint = $true
-      }
-      $Id = $obj.id
-      if($VmName)
-      {
-        $objVm = $obj.design.vms | Where-Object{
-          $_.name -eq $VmName
-        }
-        $VmId = $objVm.id
-      }
-      if($DiskName)
-      {
-        $objDisk = $objVm.hardDrives | Where-Object{
-          $_.name -eq $DiskName
-        }
-        $DiskId = $objDisk.id
-      }
+      $blueprint = $false
+      $obj = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
+    }
+    elseif($BlueprintId -gt 0)
+    {
+      $obj = Get-RavelloBlueprint -BlueprintId $BlueprintId -Raw
+      $blueprint = $true
+    }
+    elseif ($ApplicationName)
+    {
+      $obj = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      $blueprint = $false
+    }
+    elseif ($BlueprintName)
+    {
+      $obj = Get-RavelloBlueprint -BlueprintName $BlueprintName -Raw
+      $blueprint = $True
     }
 
+    $Id = $obj.id
+    if ($VmName)
+    {
+      $objVm = $obj.design.vms | Where-Object{
+        $_.name -eq $VmName
+      }
+      $VmId = $objVm.id
+    }
+    else
+    {
+      $objVm = $obj.design.vms | Where-Object{
+        $_.id -eq $VmId
+      }
+    }
+    if ($DiskName)
+    {
+      $objDisk = $objVm.hardDrives | Where-Object{
+        $_.name -eq $DiskName
+      }
+      $DiskId = $objDisk.id
+    }
+		
     $sDiskImage = @{
       Method  = 'Post'
       Request = 'diskImages'
@@ -1810,19 +3237,22 @@ function New-RavelloDiskImage
         vmId          = $VmId
         diskId        = $DiskId
         diskImage     = @{
-          name = $Name
+          name = $NewDiskName
         }
         offline       = ($Offline.ToString()).ToLower()
-        blueprint     = $blueprint
+        blueprint     = ($blueprint.ToString()).ToLower()
       }
     }
-    If ($PSCmdlet.ShouldProcess("Create disk image"))
+    If ($PSCmdlet.ShouldProcess('Create disk image'))
     {
-        $disk = Invoke-RavRest @sDiskImage
-        $disk  | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_
+      $disk = Invoke-hRavelloRest @sDiskImage
+      $disk | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -1830,42 +3260,47 @@ function New-RavelloDiskImage
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloDiskImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'DiskImageId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DiskImageId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$DiskImageId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'DiskImageName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'DiskImageName')]
     [string]$DiskImageName,
     [string]$NewName,
-    [string]$Description,
-    [ValidateSet('GB','MB','KB','BYTE')]
-    [string]$SizeUnit,
-    [long]$Size
+    [string]$NewDescription,
+    [ValidateSet('GB', 'MB', 'KB', 'BYTE')]
+    [string]$NewSizeUnit,
+    [long]$NewSize,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($DiskImageName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($DiskImageName)
     {
-      $disk = Get-RavelloDiskImage -DiskImageName $DiskImageName
+      $disk = Get-RavelloDiskImage -DiskImageName $DiskImageName -Raw
     }
     else
     {
-      $disk = Get-RavelloDiskImage -DiskImageId $DiskImageId
+      $disk = Get-RavelloDiskImage -DiskImageId $DiskImageId -Raw
     }
-    if(!$NewName)
+    if (!$NewName)
     {
       $NewName = $disk.name
     }
-    if(!$SizeUnit)
+    if (!$NewSizeUnit)
     {
-      $SizeUnit = $disk.size.unit
+      $NewSizeUnit = $disk.size.unit
     }
-    if(!$Size)
+    if (!$NewSize)
     {
-      $Size = $disk.size.value
+      $NewSize = $disk.size.value
     }
     $sDiskImage = @{
       Method  = 'Put'
@@ -1874,22 +3309,25 @@ function Set-RavelloDiskImage
         id   = $disk.id
         name = $NewName
         size = @{
-          unit  = $SizeUnit
-          value = $Size
+          unit  = $NewSizeUnit
+          value = $NewSize
         }
       }
     }
-    if($Description)
+    if ($NewDescription)
     {
-      $sDiskImage.Body.Add('description',$Description)
+      $sDiskImage.Body.Add('description', $NewDescription)
     }
-    If ($PSCmdlet.ShouldProcess("Change disk image"))
+    If ($PSCmdlet.ShouldProcess('Change disk image'))
     {
-        $newdisk = Invoke-RavRest @sDiskImage
-        $newdisk  | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_
+      $newdisk = Invoke-hRavelloRest @sDiskImage
+      $newdisk | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -1897,18 +3335,22 @@ function Set-RavelloDiskImage
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloDiskImage
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'DiskImageId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DiskImageId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$DiskImageId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'DiskImageName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'DiskImageName')]
     [string]$DiskImageName
   )
+	
+  process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($DiskImageName)
+    if ($DiskImageName)
     {
       $DiskImageId = Get-RavelloDiskImage -DiskImageName $DiskImageName | Select-Object -ExpandProperty id
     }
@@ -1916,9 +3358,153 @@ function Remove-RavelloDiskImage
       Method  = 'Delete'
       Request = "diskImages/$($DiskImageId)"
     }
-    If ($PSCmdlet.ShouldProcess("Remove disk image"))
+    If ($PSCmdlet.ShouldProcess('Remove disk image'))
     {
-        Invoke-RavRest @sDiskImage
+      Invoke-hRavelloRest @sDiskImage
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloDiskImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$DiskImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIName')]
+    [string]$DiskImageName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($DiskImageName)
+    {
+      $dim = Get-RavelloDiskImage -DiskImageName $DiskImageName
+      $DiskImageId = $dim.id
+    }
+    $sDim = @{
+      Method  = 'Get'
+      Request = "diskImages/$($ApplicationId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Get diskimage documentation'))
+    {
+      Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloDiskImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$DiskImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIName')]
+    [string]$DiskImageName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($DiskImageName)
+    {
+      $dim = Get-RavelloDiskImage -DiskImageName $DiskImageName
+      $DiskImageId = $dim.id
+    }
+    $sDim = @{
+      Method  = 'Post'
+      Request = "diskImages/$($DiskImageId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set diskimage documentation'))
+    {
+      Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloDiskImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$DiskImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIName')]
+    [string]$DiskImageName,
+    [string]$Documentation
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($DiskImageName)
+    {
+      $dim = Get-RavelloDiskImage -DiskImageName $DiskImageName
+      $DiskImageId = $dim.id
+    }
+    $sDim = @{
+      Method  = 'Put'
+      Request = "diskImages/$($DiskImageId)/documentation"
+      Body    = @{
+        'value' = $Documentation
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Set diskimage documentation'))
+    {
+      Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloDiskImageDocumentation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$DiskImageId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'DIName')]
+    [string]$DiskImageName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($DiskImageName)
+    {
+      $dim = Get-RavelloDiskImage -DiskImageName $DiskImageName
+      $DiskImageId = $dim.id
+    }
+    $sDim = @{
+      Method  = 'Delete'
+      Request = "diskImages/$($DiskImageId)/documentation"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove diskimage documentation'))
+    {
+      Invoke-hRavelloRest @sDim
     }
   }
 }
@@ -1928,21 +3514,27 @@ function Remove-RavelloDiskImage
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloKeyPair
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'KeyPairId')]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'KeyPairId')]
     [long]$KeyPairId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'KeyPairName')]
-    [string]$KeyPairName
+    [Parameter(Mandatory = $True, ParameterSetName = 'KeyPairName')]
+    [string]$KeyPairName,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-    
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
     $sKeyPair = @{
       Method  = 'Get'
       Request = 'keypairs'
     }
-    if($KeyPairName)
+    if ($KeyPairName)
     {
       $KeyPairId = Get-RavelloKeyPair |
       Where-Object{
@@ -1950,19 +3542,20 @@ function Get-RavelloKeyPair
       } |
       Select-Object -ExpandProperty id
     }
-    if($KeyPairId)
+    if ($KeyPairId)
     {
-      $sKeyPair.Request = $sKeyPair.Request.Replace('keypairs',"keypairs/$($KeyPairId)")
+      $sKeyPair.Request = $sKeyPair.Request.Replace('keypairs', "keypairs/$($KeyPairId)")
     }
-    If ($PSCmdlet.ShouldProcess("Get key pairs"))
+    If ($PSCmdlet.ShouldProcess('Get key pairs'))
     {
-        $keypairs = Invoke-RavRest @sKeyPair
-        $keypairs | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_.creator.invitationTime = ConvertFrom-JsonDateTime -DateTime $_.creator.invitationTime
-          $_.creator.activateTime = ConvertFrom-JsonDateTime -DateTime $_.creator.activateTime
-          $_
+      $keypairs = Invoke-hRavelloRest @sKeyPair
+      $keypairs | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -1970,72 +3563,76 @@ function Get-RavelloKeyPair
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloKeyPair
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'New')]
-    [string]$Name,
-    [Parameter(Mandatory = $true,ParameterSetName = 'New',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'New')]
+    [string]$KeyPairName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'New', ValueFromPipelineByPropertyName)]
     [string]$PublicKey,
-    [Parameter(Mandatory = $true,ParameterSetName = 'Generate')]
-    [switch]$Generate
+    [Parameter(Mandatory = $True, ParameterSetName = 'Generate')]
+    [switch]$Generate,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     $sKeyPair = @{
       Method  = 'Post'
       Request = 'keypairs'
     }
-
-    if($Generate)
+		
+    if ($Generate)
     {
       $sKeyPair.Request = 'keypairs/generate'
     }
     else
     {
-      $sKeyPair.Add('Body',@{
-          'name'    = $Name
+      $sKeyPair.Add('Body', @{
+          'name'    = $KeyPairName
           'publicKey' = $PublicKey
       })
     }
-    If ($PSCmdlet.ShouldProcess("Create key pair"))
+    If ($PSCmdlet.ShouldProcess('Create key pair'))
     {
-        $keypair = Invoke-RavRest @sKeyPair
-        $keypair | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          if($_.creator.invitationTime)
-          {
-            $_.creator.invitationTime = ConvertFrom-JsonDateTime -DateTime $_.creator.invitationTime
-          }
-          if($_.creator.activateTime)
-          {
-            $_.creator.activateTime = ConvertFrom-JsonDateTime -DateTime $_.creator.activateTime
-          }
-          $_
+      $keypair = Invoke-hRavelloRest @sKeyPair
+      $keypair | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
-  }    
+  }
 }
 
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloKeyPair
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'KeyPairId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'KeyPairId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$KeyPairId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'KeyPairName')]
-    [long]$KeyPairName,
-    [string]$NewName
+    [Parameter(Mandatory = $True, ParameterSetName = 'KeyPairName')]
+    [string]$KeyPairName,
+    [string]$NewName,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($KeyPairName)
+    if ($KeyPairName)
     {
       $KeyPairId = Get-RavelloKeyPair |
       Where-Object{
@@ -2051,24 +3648,16 @@ function Set-RavelloKeyPair
         'name' = $NewName
       }
     }
-    If ($PSCmdlet.ShouldProcess("Change key pair"))
+    If ($PSCmdlet.ShouldProcess('Change key pair'))
     {
-        $keypair = Invoke-RavRest @sKeyPair
-        $keypair | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          if($_.creator.invitationTime)
-          {
-            $_.creator.invitationTime = ConvertFrom-JsonDateTime -DateTime $_.creator.invitationTime
-          }
-          if($_.creator.activateTime)
-          {
-            $_.creator.activateTime = ConvertFrom-JsonDateTime -DateTime $_.creator.activateTime
-          }
-          $_
+      $keypair = Invoke-hRavelloRest @sKeyPair
+      $keypair | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -2076,18 +3665,22 @@ function Set-RavelloKeyPair
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloKeyPair
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'KeyPairId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'KeyPairId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$KeyPairId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'KeyPairName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'KeyPairName')]
     [string]$KeyPairName
   )
+	
+  process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($KeyPairName)
+    if ($KeyPairName)
     {
       $KeyPairId = Get-RavelloKeyPair |
       Where-Object{
@@ -2099,9 +3692,9 @@ function Remove-RavelloKeyPair
       Method  = 'Delete'
       Request = "keypairs/$($KeyPairId)"
     }
-    If ($PSCmdlet.ShouldProcess("Remove key pair"))
+    If ($PSCmdlet.ShouldProcess('Remove key pair'))
     {
-        Invoke-RavRest @sKeyPair
+      Invoke-hRavelloRest @sKeyPair
     }
   }
 }
@@ -2111,22 +3704,32 @@ function Remove-RavelloKeyPair
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloElasticIP
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param()
-    
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
     $sElasticIP = @{
       Method  = 'Get'
       Request = 'elasticIps'
     }
-    If ($PSCmdlet.ShouldProcess("Get Elastic IPs"))
+    If ($PSCmdlet.ShouldProcess('Get Elastic IPs'))
     {
-        $eIP = Invoke-RavRest @sElasticIP
-        $eIP | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_
+      $eIP = Invoke-hRavelloRest @sElasticIP
+      $eIP | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -2134,22 +3737,48 @@ function Get-RavelloElasticIP
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloElasticIP
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param()
-    
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [ValidateScript({(Get-RavelloElasticIPLocation) -contains $_})]
+    [string]$Location,
+    [string]$Name,
+    [string]$Description,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
     $sElasticIP = @{
       Method  = 'Post'
       Request = 'elasticIps'
+      Body = @{
+        location = $Location
+      }
     }
-    If ($PSCmdlet.ShouldProcess("Create elastic IP"))
+    if($Name)
     {
-        $eIP = Invoke-RavRest @sElasticIP
-        $eIP | ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_
+      $sElasticIP.Body.Add('name',$Name)
+    }
+    if($Description)
+    {
+      $sElasticIP.Body.Add('description',$Description)
+    }
+        
+    If ($PSCmdlet.ShouldProcess('Create elastic IP'))
+    {
+      $eIP = Invoke-hRavelloRest @sElasticIP
+      $eIP | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -2157,50 +3786,82 @@ function New-RavelloElasticIP
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloElasticIP
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName)]
     [Alias('ip')]
     [string]$ElasticIpAddress
   )
-    
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
     $sElasticIP = @{
       Method  = 'Delete'
       Request = "elasticIps/$($ElasticIpAddress)"
     }
-    If ($PSCmdlet.ShouldProcess("Remove elastic IP"))
+    If ($PSCmdlet.ShouldProcess('Remove elastic IP'))
     {
-        Invoke-RavRest @sElasticIP
+      Invoke-hRavelloRest @sElasticIP
     }
   }
 }
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloElasticIPLocation
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param ()
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sElasticIP = @{
+      Method  = 'Get'
+      Request = 'elasticIps/locations'
+    }
+    If ($PSCmdlet.ShouldProcess('Get elastic IP locations'))
+    {
+      Invoke-hRavelloRest @sElasticIP
+    }
+  }
+}
+
 #endregion
 
 #region Organizations
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloOrganization
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'OrganizationId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'OrganizationId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$OrganizationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'OrganizationName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'OrganizationName')]
     [string]$OrganizationName,
     [Parameter(ParameterSetName = 'OrganizationName')]
     [Parameter(ParameterSetName = 'OrganizationId')]
     [switch]$Users = $false
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     $sOrg = @{
       Method  = 'Get'
       Request = 'organization'
     }
-    if($OrganizationName)
+    if ($OrganizationName)
     {
       $OrganizationId = Get-RavelloOrganization |
       Where-Object{
@@ -2208,20 +3869,20 @@ function Get-RavelloOrganization
       } |
       Select-Object -ExpandProperty id
     }
-    if($OrganizationId)
+    if ($OrganizationId)
     {
-      if($Users)
+      if ($Users)
       {
-        $sOrg.Request = $sOrg.Request.Replace('organization',"organizations/$([String]$OrganizationId)/users")
+        $sOrg.Request = $sOrg.Request.Replace('organization', "organizations/$([String]$OrganizationId)/users")
       }
       else
       {
-        $sOrg.Request = $sOrg.Request.Replace('organization',"organizations/$([String]$OrganizationId)")
+        $sOrg.Request = $sOrg.Request.Replace('organization', "organizations/$([String]$OrganizationId)")
       }
     }
-    If ($PSCmdlet.ShouldProcess("Get Organization"))
+    If ($PSCmdlet.ShouldProcess('Get Organization'))
     {
-        Invoke-RavRest @sOrg
+      Invoke-hRavelloRest @sOrg
     }
   }
 }
@@ -2229,24 +3890,28 @@ function Get-RavelloOrganization
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloOrganization
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'OrganizationId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'OrganizationId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$OrganizationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'OrganizationName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'OrganizationName')]
     [string]$OrganizationName,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $True)]
     [string]$NewOrganizationName
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($OrganizationName)
+    if ($OrganizationName)
     {
       $OrganizationId = Get-RavelloOrganization |
       Where-Object{
-        $_.name -eq $OrganizationName
+        $_.organizationName -eq $OrganizationName
       } |
       Select-Object -ExpandProperty id
     }
@@ -2257,9 +3922,9 @@ function Set-RavelloOrganization
         'organizationName' = $NewOrganizationName
       }
     }
-    If ($PSCmdlet.ShouldProcess("Change organization"))
+    If ($PSCmdlet.ShouldProcess('Change organization'))
     {
-        Invoke-RavRest @sOrganization
+      Invoke-hRavelloRest @sOrganization
     }
   }
 }
@@ -2269,57 +3934,64 @@ function Set-RavelloOrganization
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloUser
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserName')]
-    [string]$UserName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$LastName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$FirstName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$UserId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'AllUsers')]
-    [switch]$All = $false
+    [Parameter(Mandatory = $True, ParameterSetName = 'AllUsers')]
+    [switch]$All = $false,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
     $sUser = @{
       Method = 'Get'
     }
-    if($UserName -or $UserId)
+    if (($FirstName -and $LastName) -or ($UserId -ne 0))
     {
-      $All = $true
+      $All = $True
     }
-    if($All)
+    if ($All)
     {
-      $sUser.Add('Request','users')
+      $sUser.Add('Request', 'users')
     }
     else
     {
-      $sUser.Add('Request','user')
+      $sUser.Add('Request', 'user')
     }
-    If ($PSCmdlet.ShouldProcess("Get users"))
+    If ($PSCmdlet.ShouldProcess('Get users'))
     {
-        $Users = Invoke-RavRest @sUser
-        if($UserId)
+      $Users = Invoke-hRavelloRest @sUser
+      if ($UserId -ne 0)
+      {
+        $Users = $Users | Where-Object{
+          $_.id -eq $UserId
+        }
+      }
+      if ($FirstName -and $LastName)
+      {
+        $Users = $Users | Where-Object{
+          "$($_.name) $($_.surname)" -eq "$($FirstName) $($LastName)"
+        }
+      }
+      $Users | ForEach-Object{
+        if(!$Raw)
         {
-          $Users = $Users | Where-Object{
-            $_.id -eq $UserId
-          }
+          Convert-hRavelloTimeField -Object $_
         }
-        if($UserName)
-        {
-          $Users = $Users | Where-Object{
-            "$($_.name) $($_.surname)" -eq $UserName
-          }
-        }
-        $Users  | ForEach-Object{
-          $_.invitationTime = ConvertFrom-JsonDateTime -DateTime $_.invitationTime
-          if($_.activateTime)
-          {
-            $_.activateTime = ConvertFrom-JsonDateTime -DateTime $_.activateTime
-          }
-          $_
-        }
+        $_
+      }
     }
   }
 }
@@ -2327,25 +3999,30 @@ function Get-RavelloUser
 # .ExternalHelp Ravello-Help.xml
 function New-RavelloUser
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'OrganizationId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'OrganizationId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$OrganizationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'OrganizationName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'OrganizationName')]
     [string]$OrganizationName,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $True)]
     [string]$EmailAddress,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $True)]
     [string]$LastName,
-    [Parameter(Mandatory = $true)]
-    [string]$FirstName
+    [Parameter(Mandatory = $True)]
+    [string]$FirstName,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-
+	
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($OrganizationName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($OrganizationName)
     {
       $OrganizationId = Get-RavelloOrganization |
       Where-Object{
@@ -2365,42 +4042,111 @@ function New-RavelloUser
         permissionGroupsSet = @($pg.Id)
       }
     }
-    If ($PSCmdlet.ShouldProcess("Create user"))
+    If ($PSCmdlet.ShouldProcess('Create user'))
     {
-        $Users = Invoke-RavRest @sUser
-        $Users  | ForEach-Object{
-          $_.invitationTime = ConvertFrom-JsonDateTime -DateTime $_.invitationTime
-          if($_.activateTime)
-          {
-            $_.activateTime = ConvertFrom-JsonDateTime -DateTime $_.activateTime
-          }
-          $_
+      $Users = Invoke-hRavelloRest @sUser
+      $Users | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
 
+<# Open issue 12580
 # .ExternalHelp Ravello-Help.xml
 function Set-RavelloUser
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$UserId,
-    [Parameter(Mandatory = $true)]
-    [string]$EmailAddress,
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserName')]
+    [string]$NewFirstName,
+    [string]$NewLastName,
+    [string]$NewEmailAddress,
+    [string[]]$NewRoles,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $user = Get-RavelloUser -UserId $UserId
+    $sUser = @{
+      Method  = 'Put'
+      Request = "users/$($UserId)"
+      Body    = @{
+        id = $user.id
+        nickname = $user.nickname
+        name = $user.name
+        surname = $user.surname
+        roles = $user.roles
+      }
+    }
+    if($NewEmailAddress)
+    {
+        $sUser.Body.email = $NewEmailAddress
+    }
+    if($NewFirstName)
+    {
+        $sUser.Body.name = $NewFirstName
+    }
+    if($NewLastName)
+    {
+        $sUser.Body.surname = $NewLastName
+    }
+    if($NewRoles)
+    {
+        $sUser.Body.roles = $NewRoles
+    }
+    If ($PSCmdlet.ShouldProcess('Change user'))
+    {
+      $User = Invoke-hRavelloRest @sUser
+      $User | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+#>
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloUserPassword
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$UserId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
     [string]$LastName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
     [string]$FirstName,
-    [string[]]$Roles
+    [Parameter(Mandatory = $True)]
+    [string]$Password,
+    [Parameter(Mandatory = $True)]
+    [string]$NewPassword
   )
 
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($LastName -and $FirstName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($LastName -and $FirstName)
     {
       $User = Get-RavelloUser -All | Where-Object{
         $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
@@ -2415,632 +4161,355 @@ function Set-RavelloUser
     }
     $sUser = @{
       Method  = 'Put'
-      Request = "users/$($UserId)"
+      Request = "users/$($UserId)/changepw"
       Body    = @{
-        email   = $User.email
-        surname = $LastName
-        name    = $FirstName
-        roles   = $Roles
+        existingPassword = $Password
+        newPassword      = $NewPassword
       }
     }
-    If ($PSCmdlet.ShouldProcess("Change user"))
+    If ($PSCmdlet.ShouldProcess('Change user password'))
     {
-        $User = Invoke-RavRest @sUser
-        $User  | ForEach-Object{
-          $_.invitationTime = ConvertFrom-JsonDateTime -DateTime $_.invitationTime
-          if($_.activateTime)
-          {
-            $_.activateTime = ConvertFrom-JsonDateTime -DateTime $_.activateTime
-          }
-          $_
-        }
+      Invoke-hRavelloRest @sUser
     }
   }
 }
 
-# Not present in current version !
+# .ExternalHelp Ravello-Help.xml
+function Disable-RavelloUser
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$UserId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$LastName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$FirstName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($LastName -and $FirstName)
+    {
+      $User = Get-RavelloUser -All | Where-Object{
+        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
+      }
+      $UserId = $User.id
+    }
+    $sUser = @{
+      Method  = 'Put'
+      Request = "users/$($UserId)/disable"
+    }
+    If ($PSCmdlet.ShouldProcess('Disable user'))
+    {
+      Invoke-hRavelloRest @sUser
+    }
+  }	
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Enable-RavelloUser
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$UserId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$LastName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$FirstName
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($LastName -and $FirstName)
+    {
+      $User = Get-RavelloUser -All | Where-Object{
+        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
+      }
+      $UserId = $User.id
+    }
+    $sUser = @{
+      Method  = 'Put'
+      Request = "users/$($UserId)/enable"
+    }
+    If ($PSCmdlet.ShouldProcess('Enable user'))
+    {
+      Invoke-hRavelloRest @sUser
+    }
+  }	
+}
+
 # .ExternalHelp Ravello-Help.xml
 function Remove-RavelloUser
 {
-
-}
-#endregion
-
-#region Permissions
-# .ExternalHelp Ravello-Help.xml
-function Get-RavelloPermissionsGroup
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low',DefaultParameterSetName="Default")]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'PermissionGroupId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
-    [long]$PermissionGroupId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PermissionGroupName')]
-    [string]$PermissionGroupName,
-    [Parameter(ParameterSetName = 'PermissionGroupId')]
-    [Parameter(ParameterSetName = 'PermissionGroupName')]
-    [switch]$Users,
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserId')]
     [long]$UserId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserName')]
-    [string]$UserName
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$LastName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$FirstName
   )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sPGroup = @{
-      Method  = 'Get'
-      Request = 'permissionsGroups'
-    }
-    if($PermissionGroupName)
-    {
-      $pg = Get-RavelloPermissionsGroup | Where-Object{
-        $_.name -eq $PermissionGroupName
-      }
-      $PermissionGroupId = $pg.id
-    }
-    if($PermissionGroupId)
-    {
-      $sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups',"permissionsGroups/$([String]$PermissionGroupId)")
-    }
-    if($Users)
-    {
-      $sPGroup.Request = $sPGroup.Request, 'users' -join '/'
-    }
-    if($UserName)
-    {
-      $UserId = Get-RavelloUser -UserName $UserName | Select-Object -ExpandProperty id
-    }
-    if($UserId)
-    {
-      $sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups',"permissionsGroups?userId=$([String]$UserId)")
-    }
-    If ($PSCmdlet.ShouldProcess("Get permissions group"))
-    {
-        $groups = Invoke-RavRest @sPGroup
-        $groups | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          $_    
-        }
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function New-RavelloPermissionsGroup
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true)]
-    [string]$Name,
-    [string]$Description,
-    [PSObject[]]$Permissions
-  )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sPGroup = @{
-      Method  = 'Post'
-      Request = 'permissionsGroups'
-      Body    = @{
-        name        = $Name
-        description = $Description
-        permissions = $Permissions
-      }
-    }
-    If ($PSCmdlet.ShouldProcess("Create permissions group"))
-    {
-        $pg = Invoke-RavRest @sPGroup
-        $pg | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          $_    
-        }
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function Set-RavelloPermissionsGroup
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'PermissionGroupId',ValueFromPipelineByPropertyName)]
-    [Alias('id')]
-    [long]$PermissionGroupId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PermissionGroupName')]
-    [string]$PermissionGroupName,
-    [string]$Name,
-    [string]$Description,
-    [PSObject[]]$Permissions
-  )
-
-  Process
-  {
-    if($PermissionGroupName)
-    {
-      $pg = Get-RavelloPermissionsGroup -PermissionGroupName $PermissionGroupName
-      $PermissionGroupId = $pg.id
-    }
-    else
-    {
-      $pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId
-    }
-    $sPGroup = @{
-      Method  = 'Put'
-      Request = "permissionsGroups/$($PermissionGroupId)"
-      Body    = $pg
-    }
-    if($Name)
-    {
-      $sPGroup.Body.name = $Name
-    }
-    if($Description)
-    {
-      $sPGroup.Body.description = $Description
-    }
-    if($Permissions)
-    {
-      $sPGroup.Body.permissions = $Permissions
-    }
-    $sPGroup.Body.creationTime = ConvertTo-JsonDateTime -Date $sPGroup.Body.creationTime 
-    If ($PSCmdlet.ShouldProcess("Change permissions group"))
-    {
-        $pg = Invoke-RavRest @sPGroup
-        $pg | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          $_    
-        }
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function Add-RavelloPermissionsGroupUser
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGId-UName',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGId-UId',ValueFromPipelineByPropertyName)]
-    [Alias('id')]
-    [long]$PermissionGroupId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGName-UName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGName-UId')]
-    [string]$PermissionGroupName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGId-UId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGName-UId')]
-    [long]$UserId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGId-UName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PGName-UName')]
-    [string]$UserName
-  )
-
-  Process
-  {
-    if($PermissionGroupName)
-    {
-      $pg = Get-RavelloPermissionsGroup -PermissionGroupName $PermissionGroupName
-      $PermissionGroupId = $pg.id
-    }
-    else
-    {
-      $pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId
-    }
-    if($UserName)
-    {
-      $User = Get-RavelloUser -UserName $UserName
-      $UserId = $User.id
-    }
-    $sPGroup = @{
-      Method  = 'Post'
-      Request = "permissionsGroups/$($PermissionGroupId)/users"
-      Body    = @{
-        userId = $UserId
-      }
-    }
-    If ($PSCmdlet.ShouldProcess("Add user to permissions group"))
-    {
-        $pg = Invoke-RavRest @sPGroup
-        $pg | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          $_    
-        }
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function Remove-RavelloPermissionsGroup
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgId-UId',ValueFromPipelineByPropertyName)]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgId-UName',ValueFromPipelineByPropertyName)]
-    [Alias('id')]
-    [long]$PermissionGroupId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgName-UId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgName-UName')]
-    [string]$PermissionGroupName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgId-UId')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgName-UId')]
-    [long]$UserId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgId-UName')]
-    [Parameter(Mandatory = $true,ParameterSetName = 'PgName-UName')]
-    [string]$UserName
-  )
-
-  Process
-  {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($PermissionGroupName)
-    {
-      $pg = Get-RavelloPermissionsGroup | Where-Object{
-        $_.name -eq $PermissionGroupName
-      }
-      $PermissionGroupId = $pg.id
-    }
-    $sPGroup = @{
-      Method  = 'Delete'
-      Request = "permissionsGroups/$($PermissionGroupId)"
-    }
-    if($UserName -or $UserId)
-    {
-      if($UserName)
-      {
-        $User = Get-RavelloUser -UserName $UserName
-        $UserId = $User.id
-      }
-      $sPGroup.Request = $sPGroup.Request, 'users', "$($UserId)" -join '/'
-    }
-    If ($PSCmdlet.ShouldProcess("Remove permissions group"))
-    {
-        $groups = Invoke-RavRest @sPGroup
-        $groups | ForEach-Object{
-          if($_.creationTime)
-          {
-            $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          }
-          $_    
-        }
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function Get-RavelloPermissionDescriptor
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param()
-
-  Process
-  {
-    $sPGroup = @{
-      Method  = 'Get'
-      Request = 'permissionsGroups/describe'
-    }
-    If ($PSCmdlet.ShouldProcess("Get permission descriptors"))
-    {
-        $descriptors = Invoke-RavRest @sPGroup
-        $descriptors
-    }
-  }
-}
-#endregion
-
-#region Notifications
-# .ExternalHelp Ravello-Help.xml
-function Get-RavelloNotification
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [long]$ApplicationId,
-    [string]$NotificationLevel,
-    [long]$MaxResults,
-    [DateTime]$Start,
-    [DateTime]$Finish
-  )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sNotification = @{
-      Method  = 'Post'
-      Request = 'notifications/search'
-      Body    = @{}
-    }
-
-    if($ApplicationId)
-    {
-      $sNotification.Body.Add('appId',$ApplicationId)
-    }
-    if($NotificationLevel)
-    {
-      $sNotification.Body.Add('notificationLevel',$NotificationLevel)
-    }
-    if($MaxResults)
-    {
-      $sNotification.Body.Add('maxResults',$MaxResults)
-    }
-    if($Start)
-    {
-      If(!$Finish)
-      {
-        $Finish = Get-Date
-      }
-      $dtObj = @{
-        'startTime' = [int64]($Start -(Get-Date '1/1/1970')).TotalMilliseconds
-        'endTime' = [int64]($Finish -(Get-Date '1/1/1970')).TotalMilliseconds
-      }
-      $sNotification.Body.Add('dateRange',$dtObj)
-    }
-    If ($PSCmdlet.ShouldProcess("Get notifications"))
-    {
-        $notifications = Invoke-RavRest @sNotification
     
-        $notifications.dateRange.startTime = ConvertFrom-JsonDateTime -DateTime $notifications.dateRange.startTime
-        $notifications.dateRange.endTime = ConvertFrom-JsonDateTime -DateTime $notifications.dateRange.endTime
-        $notifications.notification = $notifications.notification | ForEach-Object{
-          $_.eventTimeStamp = ConvertFrom-JsonDateTime -DateTime $_.eventTimeStamp
-          $_
-        }
-        $notifications
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($LastName -and $FirstName)
+    {
+      $User = Get-RavelloUser -All | Where-Object{
+        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
+      }
+      $UserId = $User.id
     }
-  }
+    $sUser = @{
+      Method  = 'Delete'
+      Request = "users/$($UserId)"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove user'))
+    {
+      Invoke-hRavelloRest @sUser
+    }
+    
+  }	
 }
 #endregion
 
-#region User Alerts
+#region Shares
 # .ExternalHelp Ravello-Help.xml
-function Get-RavelloUserAlert
+function Get-RavelloShare
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param()
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sUAlert = @{
-      Method  = 'Get'
-      Request = 'userAlerts'
-    }
-
-    If ($PSCmdlet.ShouldProcess("Get user alerts"))
-    {
-        Invoke-RavRest @sUAlert
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function Set-RavelloUserAlert
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Medium')]
-  param(
-    [Parameter(Mandatory = $true)]
-    [string]$EventName,
-    [Parameter(ParameterSetName = 'UserId')]
-    [long]$UserId,
-    [Parameter(ParameterSetName = 'UserName')]
-    [string]$UserName
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [long]$ShareId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ShareUserName')]
+    [string]$SharingUserFirstName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ShareUserName')]
+    [string]$SharingUserLastName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ShareUserId')]
+    [Alias('id')]
+    [long]$SharingUserId,
+    [string]$TargetEmail,
+    [ValidateSet('BLUEPRINT','LIBRARY_VM','DISK_IMAGE')]
+    [string]$ResourceType,
+    [string]$SharedResourceName,
+    [long]$SharedResourceId,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
+    
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    if($UserName)
-    {
-      $User = Get-RavelloUser -UserName $UserName
-      $UserId = $User.id
+    $sShare = @{
+      Method  = 'Get'
+      Request = 'shares'
     }
-    $sUAlert = @{
-      Method  = 'Post'
-      Request = 'userAlerts'
-      Body    = @{
-        'eventName' = $EventName
+    $q = @()
+    if($SharedResourceName)
+    {
+      $shr = Get-RavelloShare | Where-Object{
+        $_.name -eq $SharedResourceName
+      }
+      $SharedResourceId = $shr.id
+    }
+    if ($SharedResourceId -ne 0)
+    {
+      $q += "sharedResourceId=$($SharedResourceId)"
+    }
+    if($SharingUserFirstName -and $SharingUserLastName)
+    {
+      $User = Get-RavelloUser -FirstName $SharingUserFirstName -LastName $SharingUserLastName
+      $SharingUserId = $User.id
+    }
+    if($SharingUserId)
+    {
+      $q += "sharingUserId=$($SharingUserId)"
+    }
+    if($TargetEmail)
+    {
+      $q += "targetEmail=$($TargetEmail)"
+    }
+    if($ResourceType)
+    {
+      $q += "sharedResourceType=$($ResourceType)"
+    }
+    if($q)
+    {
+      $sShare.Request = $sShare.Request, ($q -join '&') -join '?'
+    }
+    If ($PSCmdlet.ShouldProcess('Get share'))
+    {
+      $shares = Invoke-hRavelloRest @sShare
+      if($ShareId -ne 0)
+      {
+        $shares = $shares | Where-Object{
+          $_.id -eq $ShareId
+        }
+      }
+      $shares | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
       }
     }
-    if($UserId)
-    {
-      $sUAlert.Body.Add('userId',$UserId)
-    }
-    If ($PSCmdlet.ShouldProcess("Change user alerts"))
-    {
-        Invoke-RavRest @sUAlert
-    }
   }
 }
 
 # .ExternalHelp Ravello-Help.xml
-function Remove-RavelloUserAlert
+function Grant-RavelloShare
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'UserId',ValueFromPipelineByPropertyName)]
-    [Alias('id')]
-    [long]$EventId
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ShareResourceName')]
+    [string]$SharedResourceName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ShareResourceId')]
+    [long]$SharedResourceId,
+    [Parameter(Mandatory = $True)]
+    [string]$TargetEmail,
+    [Parameter(Mandatory = $True)]
+    [ValidateSet('BLUEPRINT','LIBRARY_VM','DISK_IMAGE')]
+    [string]$ResourceType
   )
 
   Process
   {
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sUAlert = @{
-      Method  = 'Delete'
-      Request = "userAlerts/$($EventId)"
-    }
-    If ($PSCmdlet.ShouldProcess("Remove user alert"))
-    {
-        Invoke-RavRest @sUAlert
-    }
-  }
-}
-#endregion
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-#region Events
-# .ExternalHelp Ravello-Help.xml
-function Get-RavelloEvent
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param()
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sEvent = @{
-      Method  = 'Get'
-      Request = 'events'
-    }
-    If ($PSCmdlet.ShouldProcess("Get events"))
+    if($SharedResourceName)
     {
-        Invoke-RavRest @sEvent
+      $SharedResourceId = switch($ResourceType)
+      {
+        'BLUEPRINT' 
+        {
+          Get-RavelloBlueprint -BlueprintName $SharedResourceName |
+          Select-Object -ExpandProperty id
+        }
+        'LIBRARY_VM' 
+        {
+          Get-RavelloImage -ImageName $SharedResourceName |
+          Select-Object -ExpandProperty id
+        }
+        'DISK_IMAGE' 
+        {
+          Get-RavelloDiskImage -DiskImageName $SharedResourceName |
+          Select-Object -ExpandProperty id
+        }
+      }
     }
-  }
-}
-#endregion
-
-#region Billing
-# .ExternalHelp Ravello-Help.xml
-function Get-RavelloBilling
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [string]$Year = [string](Get-Date).AddMonths(-1).Year ,
-    [string]$Month = '{0:D2}' -f ((Get-Date).AddMonths(-1).Month)
-  )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sBill = @{
-      Method  = 'Get'
-      Request = 'billing'
-    }
-    if($Year -and $Month)
-    {
-      $sBill.Request = $sBill.Request.Replace('billing',"billing?year=$($Year)&month=$($Month)")
-    }
-    If ($PSCmdlet.ShouldProcess("Get billing"))
-    {
-        Invoke-RavRest @sBill
-    }
-  }
-}
-#endregion
-
-#region VMs
-# .ExternalHelp Ravello-Help.xml
-function Get-RavelloVM
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'AppName')]
-    [Parameter(ParameterSetName = 'VmName')]
-    [Parameter(ParameterSetName = 'VmId')]
-    [string]$ApplicationName,
-    [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId')]
-    [Parameter(ParameterSetName = 'VmName')]
-    [Parameter(ParameterSetName = 'VmId')]
-    [Alias('id')]
-    [long]$ApplicationId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'VmName')]
-    [string]$VmName,
-    [Parameter(Mandatory = $true,ParameterSetName = 'VmId')]
-    [long]$VmId
-  )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    $sVM = @{
-      Method  = 'Get'
-      Request = 'applications/vms'
-    }
-    if($ApplicationName)
-    {
-      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
-    }
-    if($ApplicationId)
-    {
-      $sVM.Request = $sVM.Request.Replace('applications',"applications/$([String]$ApplicationId)")
-    }
-    if($VmName)
-    {
-      $VmId = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName | Select-Object -ExpandProperty id
-    }
-    if($VmId)
-    {
-      $sVM.Request = $sVM.Request.Replace('vms',"vms/$([String]$VmId)")
-    }
-    if($Deployment)
-    {
-      $sVM.Request = $sVM.Request, 'deployment' -join ';'
-    }
-    if($Properties)
-    {
-      $sVM.Request = $sVM.Request, 'properties' -join ';'
-    }
-    If ($PSCmdlet.ShouldProcess("Get VM"))
-    {
-        Invoke-RavRest @sVM
-    }
-  }
-}
-
-# .ExternalHelp Ravello-Help.xml
-function Invoke-RavelloVMAction
-{
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='High')]
-  param(
-    [PSObject]$VM,
-    [ValidateSet('stop','start','shutdown','poweroff','restart','redeploy','repair','resetDisk')]
-    [string]$Action
-  )
-
-  Process{
-    Write-Verbose "$($MyInvocation.MyCommand.Name)"
-    Write-Debug "VM     = $($VM.Name)"
-    Write-Debug "Action = $($Action)"
-
-    $sVM = @{
+    $sShare = @{
       Method  = 'Post'
-      Request = "applications/$($VM.ApplicationId)/vms/$($VM.Id)/$($Action)"
+      Request = 'shares'
+      Body    = @{
+        targetEmail        = $TargetEmail
+        sharedResourceType = $ResourceType
+        sharedResourceId   = $SharedResourceId
+      }
     }
-    If ($PSCmdlet.ShouldProcess("Perform action on VM"))
+    If ($PSCmdlet.ShouldProcess('Grant share access'))
     {
-        Invoke-RavRest @sVM
+      Invoke-hRavelloRest @sShare
+    }    
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Revoke-RavelloShare
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ShareId
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sShare = @{
+      Method  = 'Delete'
+      Request = "shares/$($ShareId)"
     }
+    If ($PSCmdlet.ShouldProcess('Revoke share access'))
+    {
+      Invoke-hRavelloRest @sShare
+    }    
   }
 }
 #endregion
 
 #region Communities
 # .ExternalHelp Ravello-Help.xml
-function Get-RavelloRepo
+function Get-RavelloCommunity
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-  [string]$CommunityName
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$CommunityId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComName')]
+    [string]$CommunityName
   )
 
   Process
   {
-    $sRepo = @{
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sCom = @{
       Method  = 'Get'
       Request = 'communities'
     }
-    If ($PSCmdlet.ShouldProcess("Get the Ravello repo"))
+    if($CommunityName)
     {
-        $comm = Invoke-RavRest @sRepo
-        if($CommunityName)
-        {
-            $comm | where{$CommunityName -like $CommunityName}
+      $com = Get-RavelloCommunity | Where-Object{
+        $_.Name -eq $CommunityName
+      }
+      $CommunityId = $com.id
+    }
+    if($CommunityId)
+    {
+      $sCom.Request = $sCom.Request, "/$($CommunityId)" -join '/'
+    }
+    If ($PSCmdlet.ShouldProcess('Get community'))
+    {
+      $comm = Invoke-hRavelloRest @sCom
+      if ($CommunityName)
+      {
+        $comm | Where-Object{
+          $CommunityName -like $CommunityName 
         }
-        else
-        {$comm}
+      }
+      else
+      {
+        $comm 
+      }
     }
   }
 }
@@ -3048,12 +4517,12 @@ function Get-RavelloRepo
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloRepoBlueprint
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ComId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$CommunityId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ComName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComName')]
     [string]$CommunityName,
     [Parameter(ParameterSetName = 'ComId')]
     [Parameter(ParameterSetName = 'ComName')]
@@ -3062,12 +4531,16 @@ function Get-RavelloRepoBlueprint
     [Parameter(ParameterSetName = 'ComName')]
     [string]$BlueprintName
   )
-    
+	
   Process
   {
-    if($CommunityName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($CommunityName)
     {
-      $communities = Get-RavelloRepo
+      $communities = Get-RavelloCommunity
       $CommunityId = $communities |
       Where-Object{
         $_.name -eq $CommunityName
@@ -3078,20 +4551,32 @@ function Get-RavelloRepoBlueprint
       Method  = 'Get'
       Request = "communities/$($CommunityId)/blueprints"
     }
-    if($BlueprintId -eq 0 -and !$BlueprintName)
-    {$mask = '*'}
-    elseif($BlueprintName)
-    {$mask = $BlueprintName}
-    else
-    {$mask = "^$"}
-    If ($PSCmdlet.ShouldProcess("Get blueprint from Ravello Repo"))
+    if ($BlueprintId -eq 0 -and !$BlueprintName)
     {
-        $bp = Invoke-RavRest @sRepo    
-        $bp | where{$_.id -eq $BlueprintId -or $_.Name -like $mask} |
-        ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_    
+      $mask = '*' 
+    }
+    elseif ($BlueprintName)
+    {
+      $mask = $BlueprintName 
+    }
+    else
+    {
+      $mask = "^$" 
+    }
+    If ($PSCmdlet.ShouldProcess('Get blueprint from Ravello Repo'))
+    {
+      $bp = Invoke-hRavelloRest @sRepo
+      $bp |
+      Where-Object{
+        $_.id -eq $BlueprintId -or $_.Name -like $mask 
+      } |
+      ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -3099,12 +4584,12 @@ function Get-RavelloRepoBlueprint
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloRepoDisk
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ComId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$CommunityId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ComName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComName')]
     [string]$CommunityName,
     [Parameter(ParameterSetName = 'ComId')]
     [Parameter(ParameterSetName = 'ComName')]
@@ -3113,12 +4598,16 @@ function Get-RavelloRepoDisk
     [Parameter(ParameterSetName = 'ComName')]
     [string]$DiskName
   )
-    
+	
   Process
   {
-    if($CommunityName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($CommunityName)
     {
-      $communities = Get-RavelloRepo
+      $communities = Get-RavelloCommunity
       $CommunityId = $communities |
       Where-Object{
         $_.name -eq $CommunityName
@@ -3129,20 +4618,32 @@ function Get-RavelloRepoDisk
       Method  = 'Get'
       Request = "communities/$($CommunityId)/diskImages"
     }
-    if($DiskId -eq 0 -and !$DiskName)
-    {$mask = '*'}
-    elseif($DiskName)
-    {$mask = $DiskName}
-    else
-    {$mask = "^$"}
-    If ($PSCmdlet.ShouldProcess("Get disks from Ravello Repo"))
+    if ($DiskId -eq 0 -and !$DiskName)
     {
-        $disk = Invoke-RavRest @sRepo    
-        $disk | where{$_.id -eq $DiskId -or $_.Name -like $mask} |
-        ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_    
+      $mask = '*' 
+    }
+    elseif ($DiskName)
+    {
+      $mask = $DiskName 
+    }
+    else
+    {
+      $mask = "^$" 
+    }
+    If ($PSCmdlet.ShouldProcess('Get disks from Ravello Repo'))
+    {
+      $disk = Invoke-hRavelloRest @sRepo
+      $disk |
+      Where-Object{
+        $_.id -eq $DiskId -or $_.Name -like $mask 
+      } |
+      ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -3150,26 +4651,32 @@ function Get-RavelloRepoDisk
 # .ExternalHelp Ravello-Help.xml
 function Get-RavelloRepoVm
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'ComId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$CommunityId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'ComName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'ComName')]
     [string]$CommunityName,
     [Parameter(ParameterSetName = 'ComId')]
     [Parameter(ParameterSetName = 'ComName')]
     [long]$VmId,
     [Parameter(ParameterSetName = 'ComId')]
     [Parameter(ParameterSetName = 'ComName')]
-    [string]$VmName
+    [string]$VmName,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
-    
+	
   Process
   {
-    if($CommunityName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($CommunityName)
     {
-      $communities = Get-RavelloRepo
+      $communities = Get-RavelloCommunity
       $CommunityId = $communities |
       Where-Object{
         $_.name -eq $CommunityName
@@ -3180,20 +4687,32 @@ function Get-RavelloRepoVm
       Method  = 'Get'
       Request = "communities/$($CommunityId)/images"
     }
-    if($VmId -eq 0 -and !$VmName)
-    {$mask = '*'}
-    elseif($VmName)
-    {$mask = $VmName}
-    else
-    {$mask = "^$"}
-    If ($PSCmdlet.ShouldProcess("Get blueprint from Ravello Repo"))
+    if ($VmId -eq 0 -and !$VmName)
     {
-        $vm = Invoke-RavRest @sRepo    
-        $vm | where{$_.id -eq $VmId -or $_.Name -like $mask} |
-        ForEach-Object{
-          $_.creationTime = ConvertFrom-JsonDateTime -DateTime $_.creationTime
-          $_    
+      $mask = '*' 
+    }
+    elseif ($VmName)
+    {
+      $mask = $VmName 
+    }
+    else
+    {
+      $mask = "^$" 
+    }
+    If ($PSCmdlet.ShouldProcess('Get blueprint from Ravello Repo'))
+    {
+      $vm = Invoke-hRavelloRest @sRepo
+      $vm |
+      Where-Object{
+        $_.id -eq $VmId -or $_.Name -like $mask 
+      } |
+      ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
         }
+        $_
+      }
     }
   }
 }
@@ -3201,31 +4720,35 @@ function Get-RavelloRepoVm
 # .ExternalHelp Ravello-Help.xml
 function Copy-RavelloRepoBlueprint
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$BlueprintId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'BpName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'BpName')]
     [string]$BlueprintName,
     [string]$NewBlueprintName,
     [string]$Description
   )
-
+	
   Process
   {
-    if($BlueprintName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($BlueprintName)
     {
       $bp = Get-RavelloRepo | Get-RavelloRepoBlueprint -BlueprintName $BlueprintName
       $BlueprintId = $bp.id
     }
-    elseif($BlueprintId)
+    elseif ($BlueprintId)
     {
-        $bp = Get-RavelloRepo | Get-RavelloRepoBlueprint -BlueprintId $BlueprintId
+      $bp = Get-RavelloRepo | Get-RavelloRepoBlueprint -BlueprintId $BlueprintId
     }
-    if(!$Description)
+    if (!$Description)
     {
-        $Description = "Copy of $($bp.name)"
+      $Description = "Copy of $($bp.name)"
     }
     $sRepo = @{
       Method  = 'Post'
@@ -3234,13 +4757,13 @@ function Copy-RavelloRepoBlueprint
         blueprintId   = $bp.id
         blueprintName = $NewBlueprintName
         description   = $Description
-        clearKeyPairs = $true
+        clearKeyPairs = $True
         offline       = ([string]$Offline).ToLower()
       }
     }
-    If ($PSCmdlet.ShouldProcess("Copy blueprint from Repo"))
+    If ($PSCmdlet.ShouldProcess('Copy blueprint from Repo'))
     {
-        Invoke-RavRest @sRepo
+      Invoke-hRavelloRest @sRepo
     }
   }
 }
@@ -3248,46 +4771,50 @@ function Copy-RavelloRepoBlueprint
 # .ExternalHelp Ravello-Help.xml
 function Copy-RavelloRepoDisk
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'DiskId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'DiskId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$DiskId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'DiskName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'DiskName')]
     [string]$DiskName,
     [string]$NewDiskName,
     [string]$Description
   )
-
+	
   Process
   {
-    if($DiskName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($DiskName)
     {
       $disk = Get-RavelloRepo | Get-RavelloRepoDisk -DiskName $DiskName
       $DiskId = $disk.id
     }
-    elseif($DiskId)
+    elseif ($DiskId)
     {
-        $disk = Get-RavelloRepo | Get-RavelloRepoDisk -DiskId $DiskId
+      $disk = Get-RavelloRepo | Get-RavelloRepoDisk -DiskId $DiskId
     }
-    if(!$Description)
+    if (!$Description)
     {
-        $Description = "Copy of $($disk.name)"
+      $Description = "Copy of $($disk.name)"
     }
     $sRepo = @{
       Method  = 'Post'
       Request = 'diskImages'
       Body    = @{
         diskImage   = @{
-            description = $Description
-            name = $NewDiskName
+          description = $Description
+          name        = $NewDiskName
         }
         diskImageId = $disk.id
       }
     }
-    If ($PSCmdlet.ShouldProcess("Copy disk from Repo"))
+    If ($PSCmdlet.ShouldProcess('Copy disk from Repo'))
     {
-        Invoke-RavRest @sRepo
+      Invoke-hRavelloRest @sRepo
     }
   }
 }
@@ -3295,46 +4822,857 @@ function Copy-RavelloRepoDisk
 # .ExternalHelp Ravello-Help.xml
 function Copy-RavelloRepoVm
 {
-  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-  param(
-    [Parameter(Mandatory = $true,ParameterSetName = 'VmId',ValueFromPipelineByPropertyName)]
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'VmId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$VmId,
-    [Parameter(Mandatory = $true,ParameterSetName = 'VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'VmName')]
     [string]$VmName,
     [string]$NewVmName,
     [string]$Description
   )
-
+	
   Process
   {
-    if($VmName)
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($VmName)
     {
-      $vm = Get-RavelloRepo | Get-RavelloRepoVM -VmName $VmName
+      $vm = Get-RavelloRepo | Get-RavelloRepoVm -VmName $VmName
       $VmId = $vm.id
     }
-    elseif($VmId)
+    elseif ($VmId)
     {
-        $vm = Get-RavelloRepo | Get-RavelloRepoVM -VmId $VmId
+      $vm = Get-RavelloRepo | Get-RavelloRepoVm -VmId $VmId
     }
-    if(!$Description)
+    if (!$Description)
     {
-        $Description = "Copy of $($vm.name)"
+      $Description = "Copy of $($vm.name)"
     }
     $sRepo = @{
       Method  = 'Post'
       Request = 'images'
       Body    = @{
-        blueprint     = $false
-        imageId       = $vm.id
-        imageName     = $NewVmName
-        clearKeyPair  = $true
-        offline       = $false
+        blueprint    = $false
+        imageId      = $vm.id
+        imageName    = $NewVmName
+        clearKeyPair = $True
+        offline      = $false
       }
     }
-    If ($PSCmdlet.ShouldProcess("Copy VM from Repo"))
+    If ($PSCmdlet.ShouldProcess('Copy VM from Repo'))
     {
-        Invoke-RavRest @sRepo
+      Invoke-hRavelloRest @sRepo
+    }
+  }
+}
+#endregion
+
+#region Ephemeral Access Tokens
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloEphemeralAccessToken
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$EphemeralAccessTokenId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenName')]
+    [string]$EphemeralAccessTokenName,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sTok = @{
+      Method  = 'Get'
+      Request = 'ephemeralAccessTokens'
+    }
+    if($EphemeralAccessTokenName)
+    {
+      $tok = Get-RavelloEphemeralAccessToken | Where-Object{
+        $_.Name -eq $EphemeralAccessTokenName
+      }
+      $EphemeralAccessTokenId = $tok.id
+    }
+    if($EphemeralAccessTokenId)
+    {
+      $sTok.Request = $sTok.Request, "$($EphemeralAccessTokenId)" -join '/'
+    }
+    If ($PSCmdlet.ShouldProcess('Get ephemeral access token'))
+    {
+      $token = Invoke-hRavelloRest @sTok
+      $token | 
+      Where-Object{
+        $_.name -match $EphemeralAccessTokenName
+      } |
+      ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloEphemeralAccessToken
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True)]
+    [string]$EphemeralAccessTokenName,
+    [DateTime]$ExpirationTime,
+    [string]$Description,
+    [PSObject[]]$Permissions
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sTok = @{
+      Method  = 'Post'
+      Request = 'ephemeralAccessTokens'
+      Body    = @{
+        name = $EphemeralAccessTokenName
+      }
+    }
+    if($ExpirationTime)
+    {
+      $sTok.Body.Add('expirationTime', (ConvertTo-hRavelloJsonDateTime -Date $ExpirationTime))
+    }
+    if($Description)
+    {
+      $sTok.Body.Add('description', $Description)
+    }
+    if($Permissions)
+    {
+      $sTok.Body.Add('permissions', $Permissions)
+    }
+    If ($PSCmdlet.ShouldProcess('Create ephemeral access token'))
+    {
+      $token = Invoke-hRavelloRest @sTok
+      if(!$Raw)
+      {
+        Convert-hRavelloTimeField -Object $token
+      }
+      $token
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloEphemeralAccessToken
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$EphemeralAccessTokenId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenName')]
+    [string]$EphemeralAccessTokenName,
+    [string]$NewName,
+    [DateTime]$NewExpirationTime,
+    [string]$NewDescription,
+    [PSObject[]]$NewPermissions,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if($EphemeralAccessTokenName)
+    {
+      $token = Get-RavelloEphemeralAccessToken -EphemeralAccessTokenName $EphemeralAccessTokenName -Raw
+      $EphemeralAccessTokenId = $token.id
+    }
+    else
+    {
+      $token = Get-RavelloEphemeralAccessToken -EphemeralAccessTokenId $EphemeralAccessTokenId -Raw
+    }
+
+    if(!$NewName)
+    {
+      $NewName = $token.name
+    }
+    if(!$NewDescription)
+    {
+      $NewDescription = $token.description
+    }
+    if(!$NewExpirationTime)
+    {
+      $NewExpirationTime = $token.expirationTime
+    }
+    if(!$NewPermissions)
+    {
+      $NewPermissions = $token.permissions
+    }
+    
+    $sTok = @{
+      Method  = 'Put'
+      Request = "ephemeralAccessTokens/$($EphemeralAccessTokenId)"
+      Body = @{
+        id = $EphemeralAccessTokenId
+        name = $NewName
+        description = $NewDescription
+        permissions = $NewPermissions
+      }
+    }
+
+    If ($PSCmdlet.ShouldProcess('Set ephemeral access token'))
+    {
+      $token = Invoke-hRavelloRest @sTok
+      $token | 
+      Where-Object{
+        $_.name -match $EphemeralAccessTokenName
+      } |
+      ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloEphemeralAccessToken
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$EphemeralAccessTokenId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenName')]
+    [string]$EphemeralAccessTokenName
+  )
+    
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($EphemeralAccessTokenName)
+    {
+      $token = Get-RavelloEphemeralAccessToken -EphemeralAccessTokenName $EphemeralAccessTokenName
+      $EphemeralAccessTokenId = $token.id
+    }
+    $sTok = @{
+      Method  = 'Delete'
+      Request = "ephemeralAccessTokens/$($EphemeralAccessTokenId)"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove ephemeral access token'))
+    {
+      Invoke-hRavelloRest @sTok
+    }
+  }	
+}
+#endregion
+
+#region Permissions
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloPermissionsGroup
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'PermissionGroupId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$PermissionGroupId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PermissionGroupName')]
+    [string]$PermissionGroupName,
+    [Parameter(ParameterSetName = 'PermissionGroupId')]
+    [Parameter(ParameterSetName = 'PermissionGroupName')]
+    [switch]$Users,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId')]
+    [long]$UserId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$LastName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserName')]
+    [string]$FirstName,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sPGroup = @{
+      Method  = 'Get'
+      Request = 'permissionsGroups'
+    }
+    if ($PermissionGroupName)
+    {
+      $pg = Get-RavelloPermissionsGroup | Where-Object{
+        $_.name -eq $PermissionGroupName
+      }
+      $PermissionGroupId = $pg.id
+    }
+    if ($PermissionGroupId)
+    {
+      $sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups', "permissionsGroups/$([String]$PermissionGroupId)")
+    }
+    if ($Users)
+    {
+      $sPGroup.Request = $sPGroup.Request, 'users' -join '/'
+    }
+    if ($FirstName -and $LastName)
+    {
+      $UserId = Get-RavelloUser -FirstName $FirstName -LastName $LastName | Select-Object -ExpandProperty id
+    }
+    if ($UserId)
+    {
+      $sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups', "permissionsGroups?userId=$([String]$UserId)")
+    }
+    If ($PSCmdlet.ShouldProcess('Get permissions group'))
+    {
+      $groups = Invoke-hRavelloRest @sPGroup
+      $groups | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloPermissionsGroup
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True)]
+    [string]$PermissionsGroupName,
+    [string]$Description,
+    [PSObject[]]$Permissions,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sPGroup = @{
+      Method  = 'Post'
+      Request = 'permissionsGroups'
+      Body    = @{
+        name        = $PermissionsGroupName
+        description = $Description
+        permissions = $Permissions
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Create permissions group'))
+    {
+      $pg = Invoke-hRavelloRest @sPGroup
+      $pg | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloPermissionsGroup
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'PermissionGroupId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$PermissionGroupId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PermissionGroupName')]
+    [string]$PermissionGroupName,
+    [string]$NewName,
+    [string]$NewDescription,
+    [PSObject[]]$NewPermissions,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($PermissionGroupName)
+    {
+      $pg = Get-RavelloPermissionsGroup -PermissionGroupName $PermissionGroupName -Raw
+      $PermissionGroupId = $pg.id
+    }
+    else
+    {
+      $pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId -Raw
+    }
+    $sPGroup = @{
+      Method  = 'Put'
+      Request = "permissionsGroups/$($PermissionGroupId)"
+      Body    = $pg
+    }
+    if ($NewName)
+    {
+      $sPGroup.Body.name = $NewName
+    }
+    if ($NewDescription)
+    {
+      $sPGroup.Body.description = $NewDescription
+    }
+    if ($NewPermissions)
+    {
+      $sPGroup.Body.permissions = $NewPermissions
+    }
+#    $sPGroup.Body.creationTime = ConvertTo-hRavelloJsonDateTime -Date $sPGroup.Body.creationTime
+    If ($PSCmdlet.ShouldProcess('Change permissions group'))
+    {
+      $pg = Invoke-hRavelloRest @sPGroup
+      $pg | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Add-RavelloPermissionsGroupUser
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGId-UName', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGId-UId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$PermissionGroupId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGName-UName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGName-UId')]
+    [string]$PermissionGroupName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGId-UId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGName-UId')]
+    [long]$UserId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGId-UName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGName-UName')]
+    [string]$FirstName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGId-UName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PGName-UName')]
+    [string]$LastName,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($PermissionGroupName)
+    {
+      $pg = Get-RavelloPermissionsGroup -PermissionGroupName $PermissionGroupName
+      $PermissionGroupId = $pg.id
+    }
+    else
+    {
+      $pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId
+    }
+    if ($FirstName -and $LastName)
+    {
+      $User = Get-RavelloUser -FirstName $FirstName -LastName $LastName
+      $UserId = $User.id
+    }
+    $sPGroup = @{
+      Method  = 'Post'
+      Request = "permissionsGroups/$($PermissionGroupId)/users"
+      Body    = @{
+        userId = $UserId
+      }
+    }
+    If ($PSCmdlet.ShouldProcess('Add user to permissions group'))
+    {
+      $pg = Invoke-hRavelloRest @sPGroup
+      $pg | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloPermissionsGroup
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgId-UId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgId-UName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$PermissionGroupId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgName', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgName-UId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgName-UName')]
+    [string]$PermissionGroupName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgId-UId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgName-UId')]
+    [long]$UserId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgId-UName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgName-UName')]
+    [string]$FirstName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgId-UName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'PgName-UName')]
+    [string]$LastName,
+    [Parameter(DontShow)]
+    [switch]$Raw
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($PermissionGroupName)
+    {
+      $pg = Get-RavelloPermissionsGroup -PermissionGroupName $PermissionGroupName
+      $PermissionGroupId = $pg.id
+    }
+    $sPGroup = @{
+      Method  = 'Delete'
+      Request = "permissionsGroups/$($PermissionGroupId)"
+    }
+    if (($FirstName -and $LastName) -or ($UserId -ne 0))
+    {
+      if ($FirstName -and $LastName)
+      {
+        $User = Get-RavelloUser -FirstName $FirstName -LastName $LastName
+        $UserId = $User.id
+      }
+      $sPGroup.Request = $sPGroup.Request, 'users', "$($UserId)" -join '/'
+    }
+    If ($PSCmdlet.ShouldProcess('Remove permissions group'))
+    {
+      $groups = Invoke-hRavelloRest @sPGroup
+      $groups | ForEach-Object{
+        if(!$Raw)
+        {
+          Convert-hRavelloTimeField -Object $_
+        }
+        $_
+      }
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloPermissionDescriptor
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [ValidateScript({
+          (Get-RavelloPermissionDescriptor).resourceType -contains $_
+    })]
+    [string[]]$ResourceType
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sPGroup = @{
+      Method  = 'Get'
+      Request = 'permissionsGroups/describe'
+    }
+    If ($PSCmdlet.ShouldProcess('Get permission descriptors'))
+    {
+      $descriptors = Invoke-hRavelloRest @sPGroup
+      if($ResourceType)
+      {
+        $descriptors | Where-Object{
+          $ResourceType -contains $_.resourceType
+        }
+      }
+      else
+      {
+        $descriptors
+      }
+    }
+  }
+}
+#endregion
+
+#region Notifications
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloNotification
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low',DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName', ValueFromPipelineByPropertyName)]
+    [string]$ApplicationName,
+    [ValidateSet('INFO','TRACE','WARN','ERROR')]
+    [string]$NotificationLevel,
+    [long]$MaxResults,
+    [DateTime]$Start,
+    [DateTime]$Finish
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sNotification = @{
+      Method  = 'Post'
+      Request = 'notifications/search'
+      Body    = @{ }
+    }
+		
+    if ($ApplicationName)
+    {
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName
+      if ($app)
+      {
+        $ApplicationId = $app.id
+      }
+    }
+    if ($ApplicationId)
+    {
+      $sNotification.Body.Add('appId', $ApplicationId)
+    }
+    if ($NotificationLevel)
+    {
+      $sNotification.Body.Add('notificationLevel', $NotificationLevel)
+    }
+    if ($MaxResults)
+    {
+      $sNotification.Body.Add('maxResults', $MaxResults)
+    }
+    if ($Start -or $Finish)
+    {
+      $dtObj = @{}
+      if($Start)
+      {
+        $dtObj.Add('startTime',(ConvertTo-hRavelloJsonDateTime -Date $Start.ToLocalTime()))
+      }
+      else
+      {
+        $dtObj.Add('startTime',(ConvertTo-hRavelloJsonDateTime -Date (Get-Date '1/1/1970').ToLocalTime()))
+      }
+      if($Finish)
+      {
+        $dtObj.Add('endTime',(ConvertTo-hRavelloJsonDateTime -Date $Finish.ToLocalTime()))
+      }
+      else
+      {
+        $dtObj.Add('endTime',(ConvertTo-hRavelloJsonDateTime -Date (Get-Date).ToLocalTime()))
+      }
+      $sNotification.Body.Add('dateRange', $dtObj)
+    }
+    If ($PSCmdlet.ShouldProcess('Get notifications'))
+    {
+      $notifications = Invoke-hRavelloRest @sNotification
+      if(!$Raw)
+      {
+        Convert-hRavelloTimeField -Object $notifications
+      }
+      $notifications
+    }
+  }
+}
+#endregion
+
+#region User Alerts
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloUserAlert
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param ()
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sUAlert = @{
+      Method  = 'Get'
+      Request = 'userAlerts'
+    }
+		
+    If ($PSCmdlet.ShouldProcess('Get user alerts'))
+    {
+      Invoke-hRavelloRest @sUAlert
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function New-RavelloUserAlert
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+  param (
+    [Parameter(Mandatory = $True)]
+    [ValidateScript({
+          (Get-RavelloEvent) -contains $_
+    })]
+    [string]$EventName,
+    [Parameter(ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$UserId,
+    [Parameter(ParameterSetName = 'UserName')]
+    [string]$FirstName,
+    [Parameter(ParameterSetName = 'UserName')]
+    [string]$LastName
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    if ($FisrName -and $LastName)
+    {
+      $User = Get-RavelloUser -FirstName $FirstName -LastName $LastName
+      $UserId = $User.id
+    }
+    $sUAlert = @{
+      Method  = 'Post'
+      Request = 'userAlerts'
+      Body    = @{
+        'eventName' = $EventName
+      }
+    }
+    if ($UserId)
+    {
+      $sUAlert.Body.Add('userId', $UserId)
+    }
+    If ($PSCmdlet.ShouldProcess('Change user alerts'))
+    {
+      Invoke-hRavelloRest @sUAlert
+    }
+  }
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Remove-RavelloUserAlert
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$EventId
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sUAlert = @{
+      Method  = 'Delete'
+      Request = "userAlerts/$($EventId)"
+    }
+    If ($PSCmdlet.ShouldProcess('Remove user alert'))
+    {
+      Invoke-hRavelloRest @sUAlert
+    }
+  }
+}
+#endregion
+
+#region Events
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloEvent
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param ()
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sEvent = @{
+      Method  = 'Get'
+      Request = 'events'
+    }
+    If ($PSCmdlet.ShouldProcess('Get events'))
+    {
+      Invoke-hRavelloRest @sEvent
+    }
+  }
+}
+#endregion
+
+#region Billing
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloBilling
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param (
+    [string]$Year = [string](Get-Date).AddMonths(-1).Year,
+    [string]$Month = '{0:D2}' -f ((Get-Date).AddMonths(-1).Month)
+  )
+	
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sBill = @{
+      Method  = 'Get'
+      Request = 'billing'
+    }
+    if ($Year -and $Month)
+    {
+      $sBill.Request = $sBill.Request.Replace('billing', "billing?year=$('{0:D4}' -f [int]$Year)&month=$('{0:D2}' -f [int]$Month)")
+    }
+    If ($PSCmdlet.ShouldProcess('Get billing'))
+    {
+      Invoke-hRavelloRest @sBill
     }
   }
 }
@@ -3342,139 +5680,121 @@ function Copy-RavelloRepoVm
 
 #region Extra
 # .ExternalHelp Ravello-Help.xml
-function Get-RavelloVmIso
+function New-RavelloPermissionFilter
 {
-    [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-    param(
-      [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId')]
-      [Parameter(ParameterSetName = 'VmName')]
-      [Parameter(ParameterSetName = 'VmId')]
-      [Alias('id')]
-      [long]$ApplicationId,
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName')]
-      [Parameter(ParameterSetName = 'VmName')]
-      [Parameter(ParameterSetName = 'VmId')]
-      [string]$ApplicationName,
-      [Parameter(Mandatory = $true,ParameterSetName = 'VmName')]
-      [string]$VmName,
-      [Parameter(Mandatory = $true,ParameterSetName = 'VmId')]
-      [long]$VmId,
-      [string]$DeviceName = 'cdrom'
-    )
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param(
+    [string]$Property,
+    [string]$Operator,
+    [string]$Operand
+  )
 
-    Process
-    {
-        $sVmCD = @{}
-        $PSBoundParameters.GetEnumerator() |
-        where{$_.Key -notmatch "^DeviceName"} |
-        ForEach-Object{
-          $sVmCD.Add($_.Key,$_.Value)
-        }
-        $vm = Get-RavelloVM @sVmCD
-        $vm.hardDrives | where{$_.type -eq 'CDROM' -and $_.name -match $DeviceName} | %{
-            If ($PSCmdlet.ShouldProcess("Get connected ISO"))
-            {
-                Get-RavelloDiskImage -DiskImageId $_.baseDiskImageId
-            }
-        }
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    New-Object -TypeName PSObject -Property @{
+      type         = 'SIMPLE'
+      operator     = $Operator
+      propertyName = $Property
+      operand      = $Operand
     }
+  }
 }
 
 # .ExternalHelp Ravello-Help.xml
-function Set-RavelloVmIso
+function New-RavelloPermission
 {
-    [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
-    param(
-      [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmId-IsoId')]
-      [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmId-IsoName')]
-      [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmName-IsoId')]
-      [Parameter(Mandatory = $true,ValueFromPipelineByPropertyName,ParameterSetName = 'AppId-VmName-IsoName')]
-      [Alias('id')]
-      [long]$ApplicationId,
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-IsoName')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-IsoName')]
-      [string]$ApplicationName,
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-IsoName')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-IsoName')]
-      [long]$VmId,
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-IsoName')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-IsoName')]
-      [string]$VmName,
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-IsoId')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-IsoId')]
-      [long]$DiskImageId,
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmId-IsoName')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppId-VmName-IsoName')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmId-IsoName')]
-      [Parameter(Mandatory = $true,ParameterSetName = 'AppName-VmName-IsoName')]
-      [string]$DiskImageName,
-      [Parameter(ParameterSetName = 'AppId-VmId-IsoId')]
-      [Parameter(ParameterSetName = 'AppId-VmId-IsoName')]
-      [Parameter(ParameterSetName = 'AppId-VmName-IsoId')]
-      [Parameter(ParameterSetName = 'AppId-VmName-IsoName')]
-      [Parameter(ParameterSetName = 'AppName-VmId-IsoId')]
-      [Parameter(ParameterSetName = 'AppName-VmId-IsoName')]
-      [Parameter(ParameterSetName = 'AppName-VmName-IsoId')]
-      [Parameter(ParameterSetName = 'AppName-VmName-IsoName')]
-      [string]$DeviceName = 'cdrom'
-    )
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
+  param(
+    [Parameter(Mandatory = $True)]
+    [ValidateScript({
+          (Get-RavelloPermissionDescriptor).resourceType -contains $_
+    })]
+    [string]$ResourceType,
+    [Parameter(Mandatory = $True)]
+    [string[]]$Action,
+    [ValidateSet('And','Or')]
+    [string]$FilterOperand = 'Or',
+    [PSObject[]]$Filter
+  )
 
-    Process
-    {
-        $sApp = @{
-            Raw = $true
-        }
-        $PSBoundParameters.GetEnumerator() | 
-        where{$_.Key -match "^Application"} |
-        ForEach-Object{
-          $sApp.Add($_.Key,$_.Value)
-        }
-        $app = Get-RavelloApplication @sApp
-
-        $sImg = @{}
-        $PSBoundParameters.GetEnumerator() | 
-        where{$_.Key -match "^DiskImage"} |
-        ForEach-Object{
-          $sImg.Add($_.Key,$_.Value)
-        }
-        $img = Get-RavelloDiskImage @sImg
-
-        $newVm = @()
-        foreach($vm in $app.design.vms){
-            if($vm.Name -eq $VmName -or $vm.id -eq $VmId){
-                $newDev = @()
-                foreach($dev in $vm.hardDrives){
-                    if($dev.type -eq 'CDROM' -and $dev.name -match $DeviceName){
-                        $dev.size.value = $img.size.value
-                        $dev.size.unit = $img.size.unit
-                        Add-Member -InputObject $dev -Name 'baseDiskImageId' -Value $img.id -MemberType NoteProperty
-                        Add-Member -InputObject $dev -Name 'baseDiskImageName' -Value $img.name -MemberType NoteProperty
-                    }
-                    $newDev += $dev
-                }
-                $vm.hardDrives = $newDev
-            }
-            $newVm += $vm
-        }
-        $app.design.vms = $newVm
-        $sApp = @{
-            Method  = 'Put'
-            Request = "applications/$($app.id)"
-            Body    = $app
-        }
-        If ($PSCmdlet.ShouldProcess("Connect ISO to VM"))
-        {
-            Invoke-RavRest @sApp
-        }
+  Process
+  {
+    $perm = New-Object -TypeName PSObject -Property @{
+      resourceType = $ResourceType
+      actions      = $Action
     }
+    if($Filter)
+    {
+      $crit = New-Object -TypeName PSObject -Property @{
+        type     = 'COMPLEX'
+        operator = $FilterOperand
+        criteria = $Filter
+      }
+      Add-Member -InputObject $perm -Name 'filterCriterion' -Value $crit -MemberType NoteProperty
+    }
+    $perm
+  }
+}
+
+function Get-RavelloEphemeralTokenURL
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low', DefaultParameterSetName = 'Default')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenId', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$EphemeralAccessTokenId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'TokenName')]
+    [string]$EphemeralAccessTokenName
+  )
+    
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $copyParms = $PSBoundParameters
+    $token = Get-RavelloEphemeralAccessToken @copyParms
+    $url = New-Object -TypeName PSObject -Property @{
+      EndUser   = ''
+      RavelloUI = "https://cloud.ravellosystems.com/#/$($token.token)"
+    }
+    $apps = $token.permissions | where{$_.ResourceType -eq 'APPLICATION'}
+    if(($apps | Measure-Object).Count -eq 1)
+    {
+      $appId = $apps.filterCriterion.criteria.operand
+      $url.EndUser = "https://access.ravellosystems.com/simple/#/$($token.token)/apps/$($appId)"
+    }
+    $url        
+  }
+}
+#endregion
+
+#region Usage
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloUsage
+{
+  [CmdletBinding(SupportsShouldProcess = $True,ConfirmImpact = 'Low')]
+  param()
+
+  Process{
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+
+    $sEvent = @{
+      Method  = 'Get'
+      Request = 'limits'
+    }
+    If ($PSCmdlet.ShouldProcess('List Usage'))
+    {
+      (Invoke-hRavelloRest @sEvent).Limitation
+    }
+  }
 }
 #endregion
 
