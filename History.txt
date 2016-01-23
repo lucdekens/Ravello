@@ -7,3 +7,6 @@ v1.1 - 07 Sep 2015
 - based on Ravello Systems REST API v1.1
 - added cmdlets for Ephemeral Access Tokens
 - completed Help pages
+v1.1.2.1 - 23 Jan 2016
+- added LICENSE.txt
+- code update after Script Analyzer run
