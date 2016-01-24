@@ -1,4 +1,8 @@
-Complete the Help file
-Add an About_Ravello file to the help
 Improve error checking
-Validate parametersets
+<<<<<<< HEAD
+
+=======
+Add Examples
+Expand the Set-RavelloImage cmdlet with more options
+Create cmdlets to work with Supplied and Required services
+>>>>>>> refs/remotes/origin/master
