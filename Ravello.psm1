@@ -5161,3 +5161,24 @@ function Get-RavelloUsage
   }
 }
 #endregion
+
+#region Usage
+# .ExternalHelp Ravello-Help.xml
+function Get-RavelloUsage
+{
+  [CmdletBinding(SupportsShouldProcess=$True,ConfirmImpact='Low')]
+  param()
+
+  Process{
+    Write-Verbose "$($MyInvocation.MyCommand.Name)"
+    $sEvent = @{
+      Method  = 'Get'
+      Request = 'limits'
+    }
+        If ($PSCmdlet.ShouldProcess("List Usage"))
+        {
+            (Invoke-RavRest @sEvent).Limitation
+        }
+  }
+}
+#endregion
