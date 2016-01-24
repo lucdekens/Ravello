@@ -1,4 +1,5 @@
-﻿#region Module variables
+﻿#requires -Version 3
+#region Module variables
 $RavelloBaseUrl = 'https://cloud.ravellosystems.com/api/v1'
 #endregion
 
@@ -35,7 +36,7 @@ function ConvertTo-hRavelloJsonDateTime
     Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
-    [int64]($Date.ToUniversalTime() - (Get-Date '1/1/1970')).totalmilliseconds
+    [int64]($Date.ToUniversalTime() - (Get-Date -Date '1/1/1970')).totalmilliseconds
   }
 }
 
@@ -55,14 +56,10 @@ function Convert-hRavelloTimeField
     foreach($obj in $Object)
     {
       $obj.psobject.properties | ForEach-Object -Process {
-        if('System.Object[]','System.Management.Automation.PSCustomObject' -contains $_.TypeNameOfValue)
-        {
-          Convert-hRavelloTimeField -Object $obj.$($_.Name)
-        }
+        if('System.Object[]', 'System.Management.Automation.PSCustomObject' -contains $_.TypeNameOfValue)
+        {Convert-hRavelloTimeField -Object $obj.$($_.Name)}
         elseif($_.Name -match 'Time' -and $_.TypeNameOfValue -eq 'System.Int64')
-        {
-          $obj.$($_.Name) = (ConvertFrom-hRavelloJsonDateTime -DateTime $obj.$($_.Name))
-        }
+        {$obj.$($_.Name) = (ConvertFrom-hRavelloJsonDateTime -DateTime $obj.$($_.Name))}
       }
     }
   }
@@ -94,48 +91,36 @@ function Invoke-hRavelloRest
       ErrorAction = 'Stop'
     }
     if (Get-Process -Name fiddler -ErrorAction SilentlyContinue)
-    {
-      $sRest.Add('Proxy', 'http://127.0.0.1:8888')
-    }
+    {$sRest.Add('Proxy', 'http://127.0.0.1:8888')}
     if ($Script:RavelloSession)
-    {
-      $sRest.Add('WebSession', $Script:RavelloSession)
-    }
+    {$sRest.Add('WebSession', $Script:RavelloSession)}
     else
-    {
-      $sRest.Add('SessionVariable', 'Script:RavelloSession')
-    }
+    {$sRest.Add('SessionVariable', 'Script:RavelloSession')}
     # To handle nested properties the Depth parameter is used explicitely (default is 2)
     if ($Body)
-    {
-      $sRest.Add('Body', ($Body | ConvertTo-Json -Depth 32 -Compress))
-    }
+    {$sRest.Add('Body', ($Body | ConvertTo-Json -Depth 32 -Compress))}
 		
     Write-Debug -Message "`tUri             : $($sRest.Uri)"
     Write-Debug -Message "`tMethod          : $($sRest.Method)"
     Write-Debug -Message "`tContentType     : $($sRest.ContentType)"
     Write-Debug -Message "`tHeaders"
-    $sRest.Headers.GetEnumerator() | ForEach-Object -Process {
-      Write-Debug "`t                : $($_.Name)`t$($_.Value)"
-    }
+    $sRest.Headers.GetEnumerator() | ForEach-Object -Process {Write-Debug -Message "`t                : $($_.Name)`t$($_.Value)"}
     Write-Debug -Message "`tBody            : $($sRest.Body)"
 		
     # The intermediate $result is used to avoid returning a PSMemberSet
     Try
-    {
-      $result = Invoke-RestMethod @sRest
-    }
+    {$result = Invoke-RestMethod @sRest}
     Catch
     {
       $excpt = $_.Exception
 
-      Write-Debug 'Exception'
-      Write-Debug "`tERROR-CODE = $($excpt.Response.Headers['ERROR-CODE'])"
-      Write-Debug "`tERROR-CODE = $($excpt.Response.Headers['ERROR-MESSAGE'])"
+      Write-Debug -Message 'Exception'
+      Write-Debug -Message "`tERROR-CODE = $($excpt.Response.Headers['ERROR-CODE'])"
+      Write-Debug -Message "`tERROR-CODE = $($excpt.Response.Headers['ERROR-MESSAGE'])"
       Throw "$($excpt.Response.Headers['ERROR-CODE']) $($excpt.Response.Headers['ERROR-MESSAGE'])"
     }
     $result
-    Write-Debug 'Leaving Invoke-hRavelloRest'
+    Write-Debug -Message 'Leaving Invoke-hRavelloRest'
   }
 }
 
@@ -156,7 +141,7 @@ function Get-hRavelloAuthHeader
 		
     $Encoded = [System.Text.Encoding]::UTF8.GetBytes(($User, $Password -Join ':'))
     $EncodedPassword = [System.Convert]::ToBase64String($Encoded)
-    Write-Debug "`tEncoded  : $($EncodedPassword)"
+    Write-Debug -Message "`tEncoded  : $($EncodedPassword)"
 		
     @{
       'Authorization' = "Basic $($EncodedPassword)"
@@ -180,13 +165,9 @@ function Update-hRavelloField
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if([bool]($Object.PSobject.Properties.name -match $Property))
-    {
-      $Object.$($Property) = $Value
-    }
+    {$Object.$($Property) = $Value}
     else
-    {
-      $Object | Add-Member -Name $Property -Value $Value -MemberType NoteProperty
-    }
+    {$Object | Add-Member -Name $Property -Value $Value -MemberType NoteProperty}
   }
 }
 #endregion
@@ -224,15 +205,11 @@ function Import-Ravello
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 		
     if (!(Test-Path -Path "$CliPath\ravello.exe"))
-    {
-      Write-Error "Could not find ravello.exe in $($CliPath)"
-    }
+    {Write-Error -Message "Could not find ravello.exe in $($CliPath)"}
     else
     {
       if (!$Script:RavelloCredential)
-      {
-        Write-Error 'You need to connect to Ravello before uploading files'
-      }
+      {Write-Error -Message 'You need to connect to Ravello before uploading files'}
       else
       {
         $User = $Script:RavelloCredential.UserName
@@ -252,9 +229,7 @@ function Import-Ravello
             $cmd = $cmd, $IsoPath -join ' '
           }
           else
-          {
-            Write-Error "Can't find ISO file $($IsoPath)"
-          }
+          {Write-Error -Message "Can't find ISO file $($IsoPath)"}
         }
         else
         {
@@ -262,13 +237,9 @@ function Import-Ravello
           if ($PSCmdlet.ParameterSetName -eq 'VM')
           {
             if (Test-Path -Path $VmPath)
-            {
-              $cmd = $cmd, $VmPath -join ' '
-            }
+            {$cmd = $cmd, $VmPath -join ' '}
             else
-            {
-              Write-Error "Can't find VM file $($VmPath)"
-            }
+            {Write-Error -Message "Can't find VM file $($VmPath)"}
           }
           elseif ($PSCmdlet.ParameterSetName -eq 'vSphere')
           {
@@ -284,32 +255,23 @@ function Import-Ravello
           elseif ($PSCmdlet.ParameterSetName -eq 'vDisk')
           {
             if (Test-Path -Path $DiskPath)
-            {
-              $cmd = $cmd, '--disk', $DiskPath -join ' '
-            }
+            {$cmd = $cmd, '--disk', $DiskPath -join ' '}
             else
-            {
-              Write-Error "Can't find VMDK file $($DiskPath)"
-            }
+            {Write-Error -Message "Can't find VMDK file $($DiskPath)"}
           }
         }
 				
         If ($PSCmdlet.ShouldProcess("Importing with $($cmd)"))
         {
-          $result = Invoke-Expression -Command $cmd
+          $result = &([scriptblock]::Create($cmd))
+#          $result = Invoke-Expression -Command $cmd
           if (!($result -notmatch 'upload.finished.successfully'))
-          {
-            Write-Warning 'Upload might have failed - check the log'
-          }
+          {Write-Warning -Message 'Upload might have failed - check the log'}
         }
         if ($oldRPswd)
-        {
-          $env:RAVELLO_PASSWORD = $oldRPswd
-        }
+        {$env:RAVELLO_PASSWORD = $oldRPswd}
         else
-        {
-          Remove-Item Env:\RAVELLO_PASSWORD
-        }
+        {Remove-Item -Path Env:\RAVELLO_PASSWORD}
       }
     }
   }
@@ -336,15 +298,14 @@ function Get-RavelloImportHistory
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 		
     if (!(Test-Path -Path "$CliPath\ravello.exe"))
-    {
-      Write-Error "Could not find ravello.exe in $($CliPath)"
-    }
+    {Write-Error -Message "Could not find ravello.exe in $($CliPath)"}
     else
     {
       $cmd = $cmd.Replace('#clipath#', $CliPath)
       If ($PSCmdlet.ShouldProcess("Listing import jobs with $($cmd)"))
       {
-        Invoke-Expression -Command $cmd |
+#        Invoke-Expression -Command $cmd |
+        &([scriptblock]::Create($cmd)) |
         Out-String |
         Select-String -AllMatches -Pattern $pattern |
         Select-Object -ExpandProperty Matches |
@@ -394,31 +355,21 @@ function Connect-Ravello
     if ($Proxy)
     {
       if ($PSDefaultParameterValues.ContainsKey('*:Proxy'))
-      {
-        $PSDefaultParameterValues['*:Proxy'] = $Proxy
-      }
+      {$PSDefaultParameterValues['*:Proxy'] = $Proxy}
       else
-      {
-        $PSDefaultParameterValues.Add('*:Proxy', $Proxy)
-      }
+      {$PSDefaultParameterValues.Add('*:Proxy', $Proxy)}
       if ($PSDefaultParameterValues.ContainsKey('*:ProxyUseDefaultCredentials'))
-      {
-        $PSDefaultParameterValues['*:ProxyUseDefaultCredentials'] = $True
-      }
+      {$PSDefaultParameterValues['*:ProxyUseDefaultCredentials'] = $True}
       else
-      {
-        $PSDefaultParameterValues.Add('*:ProxyUseDefaultCredentials', $True)
-      }
+      {$PSDefaultParameterValues.Add('*:ProxyUseDefaultCredentials', $True)}
     }
     if ($PSCmdlet.ParameterSetName -eq 'PlainText')
     {
       $sPswd = ConvertTo-SecureString -String $Password -AsPlainText -Force
-      $Script:RavelloCredential = New-Object System.Management.Automation.PSCredential -ArgumentList ($User, $sPswd)
+      $Script:RavelloCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList ($User, $sPswd)
     }
     if ($PSCmdlet.ParameterSetName -eq 'Credential')
-    {
-      $Script:RavelloCredential = $Credential
-    }
+    {$Script:RavelloCredential = $Credential}
     $Script:AuthHeader = Get-hRavelloAuthHeader
     $sConnect = @{
       Method  = 'Post'
@@ -429,19 +380,13 @@ function Connect-Ravello
       if (Get-Process -Name fiddler -ErrorAction SilentlyContinue)
       {
         if ($PSDefaultParameterValues.ContainsKey('Invoke-RestMethod:Proxy'))
-        {
-          $PSDefaultParameterValues['Invoke-RestMethod:Proxy'] = 'http://127.0.0.1:8888'
-        }
+        {$PSDefaultParameterValues['Invoke-RestMethod:Proxy'] = 'http://127.0.0.1:8888'}
         else
-        {
-          $PSDefaultParameterValues.Add('Invoke-RestMethod:Proxy', 'http://127.0.0.1:8888')
-        }
+        {$PSDefaultParameterValues.Add('Invoke-RestMethod:Proxy', 'http://127.0.0.1:8888')}
       }
     }
     If ($PSCmdlet.ShouldProcess('Connecting to Ravello'))
-    {
-      Invoke-hRavelloRest @sConnect
-    }
+    {Invoke-hRavelloRest @sConnect}
   }
 }
 
@@ -513,47 +458,37 @@ function Get-RavelloApplication
     $appFound = $false
     if($ApplicationName)
     {
-      $app = Get-RavelloApplication -Raw | where{$_.name -eq $ApplicationName}
+      $app = Get-RavelloApplication -Raw | Where-Object{$_.name -eq $ApplicationName}
       if($app)
       {
-        $sApp.Request = $sApp.Request,"$([string]$app.id)" -join '/'
-        $appFound = $true
+        $sApp.Request = $sApp.Request, "$([string]$app.id)" -join '/'
+        $appFound = $True
       }
     }
     elseif($ApplicationId -gt 0)
     {
-      $app = Get-RavelloApplication -Raw | where{$_.id -eq $ApplicationId}
+      $app = Get-RavelloApplication -Raw | Where-Object{$_.id -eq $ApplicationId}
       if($app)
       {
-        $sApp.Request = $sApp.Request,"$([string]$app.id)" -join '/'
+        $sApp.Request = $sApp.Request, "$([string]$app.id)" -join '/'
         $appFound = $True
       }
     }
     else
-    {
-        $noParam = $true
-    }
+    {$noParam = $True}
     if($noParam -or $appFound)
     {
       if($Design)
-      {
-        $sApp.Request = $sApp.Request, 'design' -join ';'
-      }
+      {$sApp.Request = $sApp.Request, 'design' -join ';'}
       if($Deployment)
-      {
-        $sApp.Request = $sApp.Request, 'deployment' -join ';'
-      }
+      {$sApp.Request = $sApp.Request, 'deployment' -join ';'}
       if($Properties)
-      {
-        $sApp.Request = $sApp.Request, 'properties' -join ';'
-      }
+      {$sApp.Request = $sApp.Request, 'properties' -join ';'}
       If ($PSCmdlet.ShouldProcess('Retrieving Application'))
       {
         $app = Invoke-hRavelloRest @sApp
         if (!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $app
-        }
+        {Convert-hRavelloTimeField -Object $app}
         $app
       }
     }
@@ -604,25 +539,19 @@ function New-RavelloApplication
       $BlueprintId = $bp.id
     }
     if($BlueprintId -ne 0)
-    {
-      $sApp.Body.Add('baseBlueprintId',$BlueprintId)
-    }
+    {$sApp.Body.Add('baseBlueprintId',$BlueprintId)}
     if($VmImageName)
-    {
-      $vms = $VmImageName | %{Get-RavelloImage -ImageName $_ -Raw}
-    }
+    {$vms = $VmImageName | ForEach-Object{Get-RavelloImage -ImageName $_ -Raw}}
     if($VmImageId)
-    {
-      $vms = $VmImageId | %{Get-RavelloImage -ImageId $_ -Raw}
-    }
+    {$vms = $VmImageId | ForEach-Object{Get-RavelloImage -ImageId $_ -Raw}}
     if($vms)
     {
-      $sApp.Body.Add('design',@{'vms'=@($vms)})
+      $sApp.Body.Add('design',@{
+          'vms' = @($vms)
+      })
     }
     If ($PSCmdlet.ShouldProcess('Create application'))
-    {
-      $app = Invoke-hRavelloRest @sApp
-    }
+    {$app = Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -652,28 +581,20 @@ function Set-RavelloApplication
       $ApplicationId = $app.id
     }
     else
-    {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
-    }
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw}
     $sApp = @{
       Method  = 'Put'
       Request = "applications/$($ApplicationId)"
       Body    = $app
     }
     if ($NewApplicationName)
-    {
-      $sApp.Body.name = $NewApplicationName
-    }
+    {$sApp.Body.name = $NewApplicationName}
 		
     if ($NewDescription)
-    {
-      $sApp.Body.description = $NewDescription
-    }
+    {$sApp.Body.description = $NewDescription}
 		
     If ($PSCmdlet.ShouldProcess('Changing application'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -705,9 +626,7 @@ function Remove-RavelloApplication
       Request = "applications/$($ApplicationId)"
     }
     If ($PSCmdlet.ShouldProcess('Removing application'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -737,13 +656,9 @@ function Get-RavelloApplicationPublishLocation
     }
 		
     if ($PreferredCloud)
-    {
-      $sApp.Body.Add('preferredCloud', $PreferredCloud)
-    }
+    {$sApp.Body.Add('preferredCloud', $PreferredCloud)}
     If ($PSCmdlet.ShouldProcess('Find application publishing site'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -758,13 +673,14 @@ function Publish-RavelloApplication
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName,
     [ValidateScript({
-        ((Get-RavelloApplication -ApplicationName $ApplicationName),(Get-RavelloApplication -ApplicationId $ApplicationId) |
-        Get-RavelloApplicationPublishLocation).cloudName -contains $_
+          ((Get-RavelloApplication -ApplicationName $ApplicationName), (Get-RavelloApplication -ApplicationId $ApplicationId) |
+          Get-RavelloApplicationPublishLocation).cloudName -contains $_
     })]
     [string]$PreferredCloud,
     [ValidateScript({
-        ((Get-RavelloApplication -ApplicationName $ApplicationName),(Get-RavelloApplication -ApplicationId $ApplicationId) |
-        Get-RavelloApplicationPublishLocation | where{$_.cloudName -eq $PreferredCloud}).regionName -contains $_
+          ((Get-RavelloApplication -ApplicationName $ApplicationName), (Get-RavelloApplication -ApplicationId $ApplicationId) |
+            Get-RavelloApplicationPublishLocation |
+          Where-Object{$_.cloudName -eq $PreferredCloud}).regionName -contains $_
     })]
     [string]$PreferredRegion,
     [ValidateSet('COST_OPTIMIZED', 'PERFORMANCE_OPTIMIZED')]
@@ -792,21 +708,13 @@ function Publish-RavelloApplication
       }
     }
     if ($PreferredCloud)
-    {
-      $sApp.Body.Add('preferredCloud', $PreferredCloud)
-    }
+    {$sApp.Body.Add('preferredCloud', $PreferredCloud)}
     if ($PreferredRegion)
-    {
-      $sApp.Body.Add('preferredRegion', $PreferredRegion)
-    }
+    {$sApp.Body.Add('preferredRegion', $PreferredRegion)}
     if ($OptimizationLevel)
-    {
-      $sApp.Body.Add('optimizationLevel', $OptimizationLevel)
-    }
+    {$sApp.Body.Add('optimizationLevel', $OptimizationLevel)}
     If ($PSCmdlet.ShouldProcess('Publish application'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -843,14 +751,10 @@ function Get-RavelloApplicationVmVnc
     {
       $app = Get-RavelloApplication -ApplicationName $ApplicationName
       if ($app)
-      {
-        $ApplicationId = $app.id
-      }
+      {$ApplicationId = $app.id}
     }
     elseif ($ApplicationId -ne 0)
-    {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId
-    }
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId}
     if ($VmId -ne 0)
     {
       $vm = Get-RavelloApplication -ApplicationId $app.id -VmId $VmId -Deployment
@@ -858,31 +762,23 @@ function Get-RavelloApplicationVmVnc
       {
         $sApp.Request = "applications/$($ApplicationId)/vms/$($VmId)/vncUrl"
         If ($PSCmdlet.ShouldProcess('Get VNC Url'))
-        {
-          Invoke-hRavelloRest @sApp
-        }
+        {Invoke-hRavelloRest @sApp}
       }
     }
     elseif ($app.deployment.vms -and $VmName)
     {
       $app.deployment.vms |
-      Where-Object{
-        $_.State -eq 'STARTED' -and $_.Name -eq $VmName 
-      } |
+      Where-Object{$_.State -eq 'STARTED' -and $_.Name -eq $VmName} |
       ForEach-Object{
         $sApp.Request = "applications/$($ApplicationId)/vms/$($_.id)/vncUrl"
         If ($PSCmdlet.ShouldProcess('Get VNC Url'))
-        {
-          Invoke-hRavelloRest @sApp
-        }
+        {Invoke-hRavelloRest @sApp}
       }
     }
     elseif ($app.deployment.vms)
     {
       $app.deployment.vms |
-      Where-Object{
-        $_.State -eq 'STARTED' 
-      } |
+      Where-Object{$_.State -eq 'STARTED'} |
       ForEach-Object{
         $sApp.Request = "applications/$($ApplicationId)/vms/$($_.id)/vncUrl"
         If ($PSCmdlet.ShouldProcess('Get VNC Url'))
@@ -950,9 +846,7 @@ function Get-RavelloApplicationCharge
       $sApp.Request = $sApp.Request.Replace('deployment','design')
     }
     If ($PSCmdlet.ShouldProcess('Get application charges'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
     
   }
 }
@@ -992,16 +886,15 @@ function Get-RavelloApplicationVmFqdn
       $ApplicationId = $app.id
     }
     $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
-    $vm = $app.deployment.vms | where{$_.name -eq $VmName -or $_.id -eq $ApplicationId}
-    if($vm){
+    $vm = $app.deployment.vms | Where-Object{$_.name -eq $VmName -or $_.id -eq $ApplicationId}
+    if($vm)
+    {
       $sApp = @{
         Method  = 'Get'
         Request = "applications/$($app.id)/vms/$($vm.id)/fqdn;deployment"
       }
       If ($PSCmdlet.ShouldProcess('Get VM FQDN'))
-      {
-        Invoke-hRavelloRest @sApp
-      }
+      {Invoke-hRavelloRest @sApp}
     }
   }
 }
@@ -1047,9 +940,7 @@ function Get-RavelloApplicationVmState
       Request = "applications/$($ApplicationId)/vms/$($VmId)/state;deployment"
     }
     If ($PSCmdlet.ShouldProcess('Get VM state'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -1097,9 +988,7 @@ function Get-RavelloApplicationVmPublicIp
       Request = "applications/$($ApplicationId)/vms/$($VmId)/publicIps;deployment"
     }
     If ($PSCmdlet.ShouldProcess('Get Public IPs'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -1131,9 +1020,7 @@ function Test-RavelloApplicationPublished
       Request = "applications/$($ApplicationId)/isPublished"
     }
     If ($PSCmdlet.ShouldProcess('Test if application is published'))
-    {
-      [Boolean](Invoke-hRavelloRest @sApp).Value
-    }
+    {[Boolean](Invoke-hRavelloRest @sApp).Value}
         
   }
 }
@@ -1189,9 +1076,7 @@ function Add-RavelloApplicationVm
     {
       $app = Invoke-hRavelloRest @sApp
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $app
-      }
+      {Convert-hRavelloTimeField -Object $app}
       $app
     }
   }
@@ -1204,10 +1089,12 @@ function Get-RavelloApplicationVm
   param (
     [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
     [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName,
     [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
@@ -1232,31 +1119,36 @@ function Get-RavelloApplicationVm
       $app = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw
       $ApplicationId = $app.id
     }
-    if($VmName)
+    if('AppId','AppName' -contains $PsCmdlet.ParameterSetName)
     {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
-      $VmId = $app.design.vms |
-      where{$_.name -eq $VmName} | Select -ExpandProperty id
+        $sAppVm = @{
+          Method  = 'Get'
+          Request = "applications/$($ApplicationId)/vms"
+        }        
     }
-    $sAppVm = @{
-      Method  = 'Get'
-      Request = "applications/$($ApplicationId)/vms/$($VmId)"
+    else
+    {
+        if($VmName)
+        {
+          $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
+          $VmId = $app.design.vms |
+          Where-Object{$_.name -eq $VmName} |
+          Select-Object -ExpandProperty id
+        }
+        $sAppVm = @{
+          Method  = 'Get'
+          Request = "applications/$($ApplicationId)/vms/$($VmId)"
+        }
     }
     if($Design)
-    {
-      $sAppVm.Request = $sAppVm.Request,'design' -join ';'
-    }
+    {$sAppVm.Request = $sAppVm.Request, 'design' -join ';'}
     if($Deployment)
-    {
-      $sAppVm.Request = $sAppVm.Request,'deployment' -join ';'
-    }
+    {$sAppVm.Request = $sAppVm.Request, 'deployment' -join ';'}
     If ($PSCmdlet.ShouldProcess('Get Application VM'))
     {
       $vm = Invoke-hRavelloRest @sAppVm
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $vm
-      }
+      {Convert-hRavelloTimeField -Object $vm}
       $vm
     } 
   }   
@@ -1294,37 +1186,21 @@ function Set-RavelloApplicationVm
       'Raw' = $True
     }
     $PSBoundParameters.GetEnumerator() |
-    Where-Object{
-      $_.Key -match '^Application'
-    } |
-    ForEach-Object{
-      $sApp.Add($_.Key, $_.Value)
-    }
+    Where-Object{$_.Key -match '^Application'} |
+    ForEach-Object{$sApp.Add($_.Key, $_.Value)}
     $app = Get-RavelloApplication @sApp
     $vms = @()
     $vms += $app.Design.Vms | ForEach-Object{
       if($_.id -eq $VmId -or $_.name -eq $VmName)
       {
         if($NewName)
-        {
-          $_.name = $NewName
-        }
+        {$_.name = $NewName}
         if($NewDescription)
-        {
-          $_.Description = $NewDescription
-        }
+        {$_.Description = $NewDescription}
       }
       $_
     }
     Update-hRavelloField -Object $app.design -Property 'vms' -Value $vms
-    #    if($app.design.psobject.Properties.name -match '^vms$')
-    #    {
-    #      $app.design.vms = $vms
-    #    }
-    #    else
-    #    {
-    #      $app.design | Add-Member -Name vms -Value $vms -MemberType NoteProperty
-    #    }
     $sApp = @{
       Method  = 'Put'
       Request = "applications/$($app.id)"
@@ -1334,9 +1210,7 @@ function Set-RavelloApplicationVm
     {
       $app = Invoke-hRavelloRest @sApp
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $app
-      }
+      {Convert-hRavelloTimeField -Object $app}
       $app
     }
   }   
@@ -1375,8 +1249,8 @@ function Remove-RavelloApplicationVm
     }
     if($VmName)
     {
-      $vm = $app.design.vms | where{$_.name -eq $VmName}
-#      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName -Raw
+      $vm = $app.design.vms | Where-Object{$_.name -eq $VmName}
+      #      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName -Raw
       $VmId = $vm.id
     }
     $sApp = @{
@@ -1384,9 +1258,7 @@ function Remove-RavelloApplicationVm
       Request = "applications/$($ApplicationId)/vms/$($VmId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove VM from application'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -1418,9 +1290,7 @@ function Get-RavelloApplicationDocumentation
       Request = "applications/$($ApplicationId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Get application documentation'))
-    {
-      Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value}
   }
 }
 
@@ -1456,9 +1326,7 @@ function New-RavelloApplicationDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set application documentation'))
-    {
-      Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value}
   }
 }
 
@@ -1494,9 +1362,7 @@ function Set-RavelloApplicationDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set application documentation'))
-    {
-      Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sApp | Select-Object -ExpandProperty value}
   }
 }
 
@@ -1528,9 +1394,7 @@ function Remove-RavelloApplicationDocumentation
       Request = "applications/$($ApplicationId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Remove application documentation'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -1561,9 +1425,7 @@ function Invoke-RavelloApplicationAction
       $ApplicationId = $app | Select-Object -ExpandProperty id
     }
     if($ApplicationId -and !$app)
-    {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
-    }
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw}
 		
     $Action = $Action.ToLower().Replace('publishupdates', 'publishUpdates').Replace('resetdisks','resetDisks')
 		
@@ -1572,9 +1434,7 @@ function Invoke-RavelloApplicationAction
       Request = "applications/$($ApplicationId)/$($Action)?startAllDraftVms=$(($StartAllVms.ToString()).ToLower())"
     }
     If ($PSCmdlet.ShouldProcess('Take action on VM'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -1616,16 +1476,12 @@ function Invoke-RavelloApplicationVMAction
       $ApplicationId = $app | Select-Object -ExpandProperty id
     }
     if($ApplicationId -and !$app)
-    {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
-    }
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw}
 
     if($VmName)
     {
       $VmId = $app.design.vms |
-      Where-Object{
-        $VmName -contains $_.Name
-      } |
+      Where-Object{$VmName -contains $_.Name} |
       Select-Object -ExpandProperty id
     }
 
@@ -1642,14 +1498,10 @@ function Invoke-RavelloApplicationVMAction
       $sVM.Add('Body',$ids)
     }
     else
-    {
-      $sVM.Add('Request',"applications/$($ApplicationId)/vms/$($VmId[0])/$($Action)")
-    }
+    {$sVM.Add('Request',"applications/$($ApplicationId)/vms/$($VmId[0])/$($Action)")}
         
     If ($PSCmdlet.ShouldProcess('Perform action on VM'))
-    {
-      Invoke-hRavelloRest @sVM
-    }
+    {Invoke-hRavelloRest @sVM}
   }
 }
 
@@ -1678,9 +1530,7 @@ function Set-RavelloApplicationTimeout
     {
       $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
       if ($app)
-      {
-        $ApplicationId = $app.id
-      }
+      {$ApplicationId = $app.id}
     }
     $sApp = @{
       Method  = 'Post'
@@ -1694,9 +1544,7 @@ function Set-RavelloApplicationTimeout
       $app = Invoke-hRavelloRest @sApp
       $app | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -1725,18 +1573,14 @@ function Test-RavelloApplicationPendingUpdate
     {
       $app = Get-RavelloApplication -ApplicationName $ApplicationName
       if ($app)
-      {
-        $ApplicationId = $app.id
-      }
+      {$ApplicationId = $app.id}
     }
     $sApp = @{
       Method  = 'Get'
       Request = "applications/$($ApplicationId)/pendingUpdates"
     }
     If ($PSCmdlet.ShouldProcess('Test pending Application update'))
-    {
-      Invoke-hRavelloRest @sApp
-    }
+    {Invoke-hRavelloRest @sApp}
   }
 }
 
@@ -1769,22 +1613,14 @@ function Get-RavelloApplicationVmIso
 
     $sVmCD = @{ }
     $PSBoundParameters.GetEnumerator() |
-    Where-Object{
-      $_.Key -notmatch '^DeviceName' 
-    } |
-    ForEach-Object{
-      $sVmCD.Add($_.Key, $_.Value)
-    }
+    Where-Object{$_.Key -notmatch '^DeviceName'} |
+    ForEach-Object{$sVmCD.Add($_.Key, $_.Value)}
     $vm = Get-RavelloApplicationVm @sVmCD
     $vm.hardDrives |
-    Where-Object{
-      $_.type -eq 'CDROM' -and $_.name -match $DeviceName 
-    } |
+    Where-Object{$_.type -eq 'CDROM' -and $_.name -match $DeviceName} |
     ForEach-Object{
       If ($PSCmdlet.ShouldProcess('Get connected ISO'))
-      {
-        Get-RavelloDiskImage -DiskImageId $_.baseDiskImageId
-      }
+      {Get-RavelloDiskImage -DiskImageId $_.baseDiskImageId}
     }
   }
 }
@@ -1842,15 +1678,11 @@ function Set-RavelloApplicationVmIso
       $ApplicationId = $app | Select-Object -ExpandProperty id
     }
     if($ApplicationId -and !$app)
-    {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
-    }
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw}
     if($VmName)
     {
       $VmId = $app.design.vms |
-      Where-Object{
-        $_.Name -eq $VmName
-      } |
+      Where-Object{$_.Name -eq $VmName} |
       Select-Object -ExpandProperty id
     }
     if($DiskImageName)
@@ -1859,9 +1691,7 @@ function Set-RavelloApplicationVmIso
       $DiskImageId = $img | Select-Object -ExpandProperty id
     }
     if($DiskImageId -and !$img)
-    {
-      $img = Get-RavelloDiskImage -DiskImageId $DiskImageId -Raw
-    }
+    {$img = Get-RavelloDiskImage -DiskImageId $DiskImageId -Raw}
     $updVm = @()
     foreach($vm in $app.design.vms)
     {
@@ -1875,21 +1705,13 @@ function Set-RavelloApplicationVmIso
             $dev.size.value = $img.size.value
             $dev.size.unit = $img.size.unit
             if($dev.PSObject.Properties['baseDiskImageId'])
-            {
-              $dev.baseDiskImageId = $img.id
-            }
+            {$dev.baseDiskImageId = $img.id}
             else
-            {
-              Add-Member -InputObject $dev -Name 'baseDiskImageId' -Value $img.id -MemberType NoteProperty
-            }
+            {Add-Member -InputObject $dev -Name 'baseDiskImageId' -Value $img.id -MemberType NoteProperty}
             if($dev.PSObject.Properties['baseDiskImageName'])
-            {
-              $dev.baseDiskImageName = $img.name
-            }
+            {$dev.baseDiskImageName = $img.name}
             else
-            {
-              Add-Member -InputObject $dev -Name 'baseDiskImageName' -Value $img.name -MemberType NoteProperty
-            }
+            {Add-Member -InputObject $dev -Name 'baseDiskImageName' -Value $img.name -MemberType NoteProperty}
           }
           $newDev += $dev
         }
@@ -1909,9 +1731,7 @@ function Set-RavelloApplicationVmIso
     {
       $app = Invoke-hRavelloRest @sApp
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $app
-      }
+      {Convert-hRavelloTimeField -Object $app}
       $app
     }
   }
@@ -1943,15 +1763,13 @@ function New-RavelloApplicationOrderGroup
       $ApplicationId = $app | Select-Object -ExpandProperty id
     }
     if($ApplicationId -and !$app)
-    {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw
-    }
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw}
     if($StartOrder)
     {
       $groups = @()
       $i = 1
       $StartOrder | ForEach-Object{
-        $group = New-Object PSObject -Property @{
+        $group = New-Object -TypeName PSObject -Property @{
           id    = $i
           name  = $_.Name
           order = $i
@@ -1962,9 +1780,7 @@ function New-RavelloApplicationOrderGroup
           foreach($vm in $app.design.vms)
           {
             if($_.VM -contains $vm.name)
-            {
-              Update-hRavelloField -Object $vm -Property 'vmOrderGroupId' -Value $group.id
-            }
+            {Update-hRavelloField -Object $vm -Property 'vmOrderGroupId' -Value $group.id}
           }
         }
         $groups += $group
@@ -1982,9 +1798,7 @@ function New-RavelloApplicationOrderGroup
       $app = Invoke-hRavelloRest @sApp
       Invoke-RavelloApplicationAction -ApplicationId $app.id -Action PublishUpdates -Confirm:$false
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $app
-      }
+      {Convert-hRavelloTimeField -Object $app}
       $app
     }
   }
@@ -2015,17 +1829,13 @@ function Get-RavelloTask
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($ApplicationName)
-    {
-      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
-    }
+    {$ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id}
     $sTask = @{
       Method  = 'Get'
       Request = "applications/$($ApplicationId)/tasks"
     }
     if ($TaskId)
-    {
-      $sTask.Request = $sTask.Request.Replace('tasks', "tasks/$($TaskId)")
-    }
+    {$sTask.Request = $sTask.Request.Replace('tasks', "tasks/$($TaskId)")}
     If ($PSCmdlet.ShouldProcess('Retrieve tasks'))
     {
       $tasks = Invoke-hRavelloRest @sTask
@@ -2086,9 +1896,7 @@ function New-RavelloTask
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($ApplicationName)
-    {
-      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
-    }
+    {$ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id}
     $sTask = @{
       Method  = 'Post'
       Request = "applications/$($ApplicationId)/tasks"
@@ -2102,72 +1910,48 @@ function New-RavelloTask
       }
     }
     
-    if('AppIdBP','AppNameBP' -contains $PSCmdlet.ParameterSetName)
+    if('AppIdBP', 'AppNameBP' -contains $PSCmdlet.ParameterSetName)
     {
-        $sTask.Body.Add('action','BLUEPRINT')
-        $args = @{
-            'namePrefix' = $BlueprintPrefix
-            'isOffline' = $Offline.ToString().ToLower()
-        }
-        if($BlueprintDescription)
-        {
-            $args.Add('description',$BlueprintDescription)            
-        }
-        $sTask.Body.Add('args',$args)
+      $sTask.Body.Add('action','BLUEPRINT')
+      $args = @{
+        'namePrefix' = $BlueprintPrefix
+        'isOffline' = $Offline.ToString().ToLower()
+      }
+      if($BlueprintDescription)
+      {$args.Add('description',$BlueprintDescription)}
+      $sTask.Body.Add('args',$args)
     }
     else
     {
-        if($StartTask)
-        {
-            $sTask.Body.Add('action','START')
-        }
-        elseif($StopTask)
-        {
-            $sTask.Body.Add('action','STOP')
-        }
+      if($StartTask)
+      {$sTask.Body.Add('action','START')}
+      elseif($StopTask)
+      {$sTask.Body.Add('action','STOP')}
     }
 
     # seconds in cron expression need to be 0 (zero)
     if ($Start)
-    {
-      $Start = $Start.ToUniversalTime().AddSeconds(- $Start.Second)
-    }
+    {$Start = $Start.ToUniversalTime().AddSeconds(- $Start.Second)}
     if ($Finish)
-    {
-      $Finish = $Finish.ToUniversalTime()
-    }
+    {$Finish = $Finish.ToUniversalTime()}
     $t = (Get-Date).AddMinutes(10).ToUniversalTime()
 		
     # seconds in cron expression need to be 0 (zero)
     if (!$Cron)
-    {
-      $Cron = "0 $($t.Minute) $($t.Hour) $($t.Day) $($t.Month) ? $($t.Year)"
-    }
+    {$Cron = "0 $($t.Minute) $($t.Hour) $($t.Day) $($t.Month) ? $($t.Year)"}
     $sTask.Body.scheduleInfo.cronExpression = $Cron
     if ($Start -and $Start -ge $t)
-    {
-      $sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $Start
-    }
+    {$sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $Start}
     elseif ($Start -and $Start -lt $t)
-    {
-      $sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $t
-    }
+    {$sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $t}
     if ($Finish -and $Finish -ge $t)
-    {
-      $sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $Finish
-    }
+    {$sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $Finish}
     elseif ($Finish -and $Finish -lt $t)
-    {
-      $sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $t
-    }
+    {$sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $t}
     if ($Description -ne '')
-    {
-      $sTask.Body.description = $Description
-    }
+    {$sTask.Body.description = $Description}
     If ($PSCmdlet.ShouldProcess('Start task'))
-    {
-      Invoke-hRavelloRest @sTask
-    }
+    {Invoke-hRavelloRest @sTask}
   }
 }
 
@@ -2206,33 +1990,19 @@ function Set-RavelloTask
       }
     }
     if ($NewStart)
-    {
-      $NewStart = $NewStart.ToUniversalTime().AddSeconds(- $NewStart.Second)
-    }
+    {$NewStart = $NewStart.ToUniversalTime().AddSeconds(- $NewStart.Second)}
     if ($NewFinish)
-    {
-      $NewFinish = $NewFinish.ToUniversalTime().AddSeconds(- $NewFinish.Second)
-    }
+    {$NewFinish = $NewFinish.ToUniversalTime().AddSeconds(- $NewFinish.Second)}
     if ($NewStart)
-    {
-        $sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $NewStart
-    }
+    {$sTask.Body.scheduleInfo.start = ConvertTo-hRavelloJsonDateTime -Date $NewStart}
     if ($NewFinish)
-    {
-        $sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $NewFinish
-    }
+    {$sTask.Body.scheduleInfo.end = ConvertTo-hRavelloJsonDateTime -Date $NewFinish}
     if ($NewDescription)
-    {
-      $sTask.Body.description = $NewDescription
-    }
+    {$sTask.Body.description = $NewDescription}
     if($NewCron)
-    {
-        $sTask.Body.scheduleInfo.cronExpression
-    }
+    {$sTask.Body.scheduleInfo.cronExpression}
     If ($PSCmdlet.ShouldProcess('Change task'))
-    {
-      Invoke-hRavelloRest @sTask
-    }
+    {Invoke-hRavelloRest @sTask}
   }
 }
 
@@ -2256,21 +2026,15 @@ function Remove-RavelloTask
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($ApplicationName)
-    {
-      $ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id
-    }
+    {$ApplicationId = Get-RavelloApplication -ApplicationName $ApplicationName | Select-Object -ExpandProperty id}
     $sTask = @{
       Method  = 'Delete'
       Request = "applications/$($ApplicationId)/tasks"
     }
     if ($TaskId)
-    {
-      $sTask.Request = $sTask.Request.Replace('tasks', "tasks/$($TaskId)")
-    }
+    {$sTask.Request = $sTask.Request.Replace('tasks', "tasks/$($TaskId)")}
     If ($PSCmdlet.ShouldProcess('Remove task'))
-    {
-      Invoke-hRavelloRest @sTask
-    }
+    {Invoke-hRavelloRest @sTask}
   }
 }
 #endregion
@@ -2303,15 +2067,11 @@ function Get-RavelloBlueprint
     if ($BlueprintName)
     {
       $BlueprintId = Get-RavelloBlueprint |
-      Where-Object{
-        $_.name -eq $BlueprintName
-      } |
+      Where-Object{$_.name -eq $BlueprintName} |
       Select-Object -ExpandProperty id
     }
     if ($BlueprintId)
-    {
-      $sBlue.Request = $sBlue.Request.Replace('blueprints', "blueprints/$($BlueprintId)")
-    }
+    {$sBlue.Request = $sBlue.Request.Replace('blueprints', "blueprints/$($BlueprintId)")}
     if ($Private)
     {
       $org = Get-RavelloOrganization
@@ -2323,9 +2083,7 @@ function Get-RavelloBlueprint
       $bp = Invoke-hRavelloRest @sBlue
       $bp | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -2360,9 +2118,7 @@ function New-RavelloBlueprint
     if ($ApplicationName)
     {
       $ApplicationId = Get-RavelloApplication |
-      Where-Object{
-        $_.Name -eq $ApplicationName
-      } |
+      Where-Object{$_.Name -eq $ApplicationName} |
       Select-Object -ExpandProperty id
     }
     if ($ApplicationId)
@@ -2382,17 +2138,13 @@ function New-RavelloBlueprint
         $bp = Invoke-hRavelloRest @sBlue
         $bp | ForEach-Object{
           if(!$Raw)
-          {
-            Convert-hRavelloTimeField -Object $_
-          }
+          {Convert-hRavelloTimeField -Object $_}
           $_
         }
       }
     }
     else
-    {
-      Throw 'New-RavelloBlueprint requires an Application (Name or Id)'
-    }
+    {Throw 'New-RavelloBlueprint requires an Application (Name or Id)'}
   }
 }
 
@@ -2417,9 +2169,7 @@ function Get-RavelloBlueprintPublishLocation
     if ($BlueprintName)
     {
       $BlueprintId = Get-RavelloBlueprint |
-      Where-Object{
-        $_.name -eq $BlueprintName
-      } |
+      Where-Object{$_.name -eq $BlueprintName} |
       Select-Object -ExpandProperty id
     }
     $sBlue = @{
@@ -2431,17 +2181,11 @@ function Get-RavelloBlueprintPublishLocation
     }
 		
     if ($PreferredCloud)
-    {
-      $sBlue.Body.Add('preferredCloud', $PreferredCloud)
-    }
+    {$sBlue.Body.Add('preferredCloud', $PreferredCloud)}
     if ($PreferredRegion)
-    {
-      $sBlue.Body.Add('preferredRegionCloud', $PreferredRegion)
-    }
+    {$sBlue.Body.Add('preferredRegionCloud', $PreferredRegion)}
     If ($PSCmdlet.ShouldProcess('Get blueprint publication location'))
-    {
-      Invoke-hRavelloRest @sBlue
-    }
+    {Invoke-hRavelloRest @sBlue}
   }
 }
 
@@ -2465,9 +2209,7 @@ function Remove-RavelloBlueprint
     if ($BlueprintName)
     {
       $BlueprintId = Get-RavelloBlueprint |
-      Where-Object{
-        $_.name -eq $BlueprintName
-      } |
+      Where-Object{$_.name -eq $BlueprintName} |
       Select-Object -ExpandProperty id
     }
     if ($BlueprintId)
@@ -2477,9 +2219,7 @@ function Remove-RavelloBlueprint
         Request = "blueprints/$($BlueprintId)"
       }
       If ($PSCmdlet.ShouldProcess('Remove blueprint'))
-      {
-        Invoke-hRavelloRest @sBlue
-      }
+      {Invoke-hRavelloRest @sBlue}
     }
   }
 }
@@ -2512,9 +2252,7 @@ function Get-RavelloBlueprintDocumentation
       Request = "blueprints/$($ApplicationId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Get blueprint documentation'))
-    {
-      Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value}
   }
 }
 
@@ -2550,9 +2288,7 @@ function New-RavelloBlueprintDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set blueprint documentation'))
-    {
-      Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value}
   }
 }
 
@@ -2588,9 +2324,7 @@ function Set-RavelloBlueprintDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set blueprint documentation'))
-    {
-      Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sBP | Select-Object -ExpandProperty value}
   }
 }
 
@@ -2622,9 +2356,7 @@ function Remove-RavelloBlueprintDocumentation
       Request = "blueprints/$($BlueprintId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Remove application documentation'))
-    {
-      Invoke-hRavelloRest @sBP
-    }
+    {Invoke-hRavelloRest @sBP}
   }
 }
 #endregion
@@ -2659,15 +2391,11 @@ function Get-RavelloImage
 		
     Switch($PSCmdlet.ParameterSetName)
     {
-      {
-        'ImageName', 'ImageId' -contains $_
-      }
+      {'ImageName', 'ImageId' -contains $_}
       {
         if($ImageName)
         {
-          $img = Get-RavelloImage -Raw | Where-Object{
-            $_.Name -eq $ImageName
-          }
+          $img = Get-RavelloImage -Raw | Where-Object{$_.Name -eq $ImageName}
           $ImageId = $img.id
         }
         $sImage.Request = $sImage.Request.Replace('images', "images/$($ImageId)")
@@ -2683,9 +2411,7 @@ function Get-RavelloImage
       $image = Invoke-hRavelloRest @sImage
       $image | ForEach-Object{
         if (!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -2742,29 +2468,21 @@ function New-RavelloImage
         $AppBpId = $bp.id
       }
       else
-      {
-        $bp = Get-RavelloBlueprint -BlueprintId $AppBpId -Raw
-      } 
+      {$bp = Get-RavelloBlueprint -BlueprintId $AppBpId -Raw} 
       if ($VmName)
       {
         $VmId = $bp.design.vms |
-        Where-Object{
-          $_.Name -eq $VmName
-        } |
+        Where-Object{$_.Name -eq $VmName} |
         Select-Object -ExpandProperty id
       }
     }
     else
     {
-      $blueprint = $False
+      $blueprint = $false
       if ($ApplicationName)
-      {
-        $AppBpId = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw | select -ExpandProperty id
-      }
+      {$AppBpId = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw | Select-Object -ExpandProperty id}
       if ($VmName)
-      {
-        $VmId = Get-RavelloApplicationVm -ApplicationId $AppBpId -VmName $VmName | Select-Object -ExpandProperty id
-      }
+      {$VmId = Get-RavelloApplicationVm -ApplicationId $AppBpId -VmName $VmName | Select-Object -ExpandProperty id}
     }
     $sImage = @{
       Method  = 'Post'
@@ -2782,9 +2500,7 @@ function New-RavelloImage
       $image = Invoke-hRavelloRest @sImage
       $image | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -2816,46 +2532,30 @@ function Set-RavelloImage
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($ImageName)
-    {
-      $img = Get-RavelloImage -ImageName $ImageName -Raw
-    }
+    {$img = Get-RavelloImage -ImageName $ImageName -Raw}
     else
-    {
-      $img = Get-RavelloImage -ImageId $ImageId -Raw
-    }
+    {$img = Get-RavelloImage -ImageId $ImageId -Raw}
     $sImage = @{
       Method  = 'Put'
       Request = "images/$($img.id)"
       Body    = $img
     }
     if($NewName)
-    {
-      $sImage.Body.name = $NewName
-    }		
+    {$sImage.Body.name = $NewName}		
     if ($NewDescription)
-    {
-      $sImage.Body.description = $NewDescription
-    }
+    {$sImage.Body.description = $NewDescription}
     if ($NumCpu)
-    {
-      $sImage.Body.numCpus = $NumCpu
-    }
+    {$sImage.Body.numCpus = $NumCpu}
     if ($MemorySizeUnit)
-    {
-      $sImage.Body.memorySize.unit = $MemorySizeUnit
-    }
+    {$sImage.Body.memorySize.unit = $MemorySizeUnit}
     if ($MemorySize)
-    {
-      $sImage.Body.memorySize.value = $MemorySize
-    }
+    {$sImage.Body.memorySize.value = $MemorySize}
 
     If ($PSCmdlet.ShouldProcess('Change image'))
     {
-      Invoke-hRavelloRest @sImage | %{
+      Invoke-hRavelloRest @sImage | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -2881,18 +2581,14 @@ function Remove-RavelloImage
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($ImageName)
-    {
-      $ImageId = Get-RavelloImage -ImageName $ImageName | Select-Object -ExpandProperty id
-    }
+    {$ImageId = Get-RavelloImage -ImageName $ImageName | Select-Object -ExpandProperty id}
 		
     $sImage = @{
       Method  = 'Delete'
       Request = "images/$($ImageId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove image'))
-    {
-      Invoke-hRavelloRest @sImage
-    }
+    {Invoke-hRavelloRest @sImage}
   }
 }
 
@@ -2924,9 +2620,7 @@ function Get-RavelloImageDocumentation
       Request = "images/$($ImagesId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Get image documentation'))
-    {
-      Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value}
   }
 }
 
@@ -2962,9 +2656,7 @@ function New-RavelloImageDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set image documentation'))
-    {
-      Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value}
   }
 }
 
@@ -3000,9 +2692,7 @@ function Set-RavelloImageDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set image documentation'))
-    {
-      Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sIm | Select-Object -ExpandProperty value}
   }
 }
 
@@ -3034,9 +2724,7 @@ function Remove-RavelloImageDocumentation
       Request = "images/$($ImageId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Remove image documentation'))
-    {
-      Invoke-hRavelloRest @sIm
-    }
+    {Invoke-hRavelloRest @sIm}
   }
 }
 #endregion
@@ -3064,45 +2752,31 @@ function Get-RavelloDiskImage
 
     $p2pValue = 0
     if($SharedWithMe)
-    {
-      $p2pValue = 1
-    }
+    {$p2pValue = 1}
     if ($DiskImageName)
     {
-      $image = Get-RavelloDiskImage | Where-Object{
-        $_.name -eq $DiskImageName
-      }
+      $image = Get-RavelloDiskImage | Where-Object{$_.name -eq $DiskImageName}
       if($image)
-      {
-        $DiskImageId = $image.id
-      }
+      {$DiskImageId = $image.id}
       else
-      {
-        $DiskImageId = -1
-      }
+      {$DiskImageId = -1}
     }
     $sDiskImage = @{
       Method  = 'Get'
       Request = 'diskImages'
     }
     if ($DiskImageId -gt 0)
-    {
-      $sDiskImage.Request = $sDiskImage.Request.Replace('diskImages', "diskImages/$($DiskImageId)")
-    }
+    {$sDiskImage.Request = $sDiskImage.Request.Replace('diskImages', "diskImages/$($DiskImageId)")}
     If ($PSCmdlet.ShouldProcess('Get disk images'))
     {
       if($DiskImageId -ne -1)
       {
         $disk = Invoke-hRavelloRest @sDiskImage
         $disk | 
-        Where-Object{
-          $_.peerToPeerShares -eq $p2pValue
-        } |
+        Where-Object{$_.peerToPeerShares -eq $p2pValue} |
         ForEach-Object{
           if(!$Raw)
-          {
-            Convert-hRavelloTimeField -Object $_
-          }
+          {Convert-hRavelloTimeField -Object $_}
           $_
         }
       }
@@ -3194,7 +2868,7 @@ function New-RavelloDiskImage
     elseif($BlueprintId -gt 0)
     {
       $obj = Get-RavelloBlueprint -BlueprintId $BlueprintId -Raw
-      $blueprint = $true
+      $blueprint = $True
     }
     elseif ($ApplicationName)
     {
@@ -3210,22 +2884,16 @@ function New-RavelloDiskImage
     $Id = $obj.id
     if ($VmName)
     {
-      $objVm = $obj.design.vms | Where-Object{
-        $_.name -eq $VmName
-      }
+      $objVm = $obj.design.vms | Where-Object{$_.name -eq $VmName}
       $VmId = $objVm.id
     }
     else
     {
-      $objVm = $obj.design.vms | Where-Object{
-        $_.id -eq $VmId
-      }
+      $objVm = $obj.design.vms | Where-Object{$_.id -eq $VmId}
     }
     if ($DiskName)
     {
-      $objDisk = $objVm.hardDrives | Where-Object{
-        $_.name -eq $DiskName
-      }
+      $objDisk = $objVm.hardDrives | Where-Object{$_.name -eq $DiskName}
       $DiskId = $objDisk.id
     }
 		
@@ -3248,9 +2916,7 @@ function New-RavelloDiskImage
       $disk = Invoke-hRavelloRest @sDiskImage
       $disk | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3283,25 +2949,15 @@ function Set-RavelloDiskImage
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($DiskImageName)
-    {
-      $disk = Get-RavelloDiskImage -DiskImageName $DiskImageName -Raw
-    }
+    {$disk = Get-RavelloDiskImage -DiskImageName $DiskImageName -Raw}
     else
-    {
-      $disk = Get-RavelloDiskImage -DiskImageId $DiskImageId -Raw
-    }
+    {$disk = Get-RavelloDiskImage -DiskImageId $DiskImageId -Raw}
     if (!$NewName)
-    {
-      $NewName = $disk.name
-    }
+    {$NewName = $disk.name}
     if (!$NewSizeUnit)
-    {
-      $NewSizeUnit = $disk.size.unit
-    }
+    {$NewSizeUnit = $disk.size.unit}
     if (!$NewSize)
-    {
-      $NewSize = $disk.size.value
-    }
+    {$NewSize = $disk.size.value}
     $sDiskImage = @{
       Method  = 'Put'
       Request = "diskImages/$($disk.id)"
@@ -3315,17 +2971,13 @@ function Set-RavelloDiskImage
       }
     }
     if ($NewDescription)
-    {
-      $sDiskImage.Body.Add('description', $NewDescription)
-    }
+    {$sDiskImage.Body.Add('description', $NewDescription)}
     If ($PSCmdlet.ShouldProcess('Change disk image'))
     {
       $newdisk = Invoke-hRavelloRest @sDiskImage
       $newdisk | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3351,17 +3003,13 @@ function Remove-RavelloDiskImage
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     if ($DiskImageName)
-    {
-      $DiskImageId = Get-RavelloDiskImage -DiskImageName $DiskImageName | Select-Object -ExpandProperty id
-    }
+    {$DiskImageId = Get-RavelloDiskImage -DiskImageName $DiskImageName | Select-Object -ExpandProperty id}
     $sDiskImage = @{
       Method  = 'Delete'
       Request = "diskImages/$($DiskImageId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove disk image'))
-    {
-      Invoke-hRavelloRest @sDiskImage
-    }
+    {Invoke-hRavelloRest @sDiskImage}
   }
 }
 
@@ -3393,9 +3041,7 @@ function Get-RavelloDiskImageDocumentation
       Request = "diskImages/$($ApplicationId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Get diskimage documentation'))
-    {
-      Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value}
   }
 }
 
@@ -3431,9 +3077,7 @@ function New-RavelloDiskImageDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set diskimage documentation'))
-    {
-      Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value}
   }
 }
 
@@ -3469,9 +3113,7 @@ function Set-RavelloDiskImageDocumentation
       }
     }
     If ($PSCmdlet.ShouldProcess('Set diskimage documentation'))
-    {
-      Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value
-    }
+    {Invoke-hRavelloRest @sDim | Select-Object -ExpandProperty value}
   }
 }
 
@@ -3503,9 +3145,7 @@ function Remove-RavelloDiskImageDocumentation
       Request = "diskImages/$($DiskImageId)/documentation"
     }
     If ($PSCmdlet.ShouldProcess('Remove diskimage documentation'))
-    {
-      Invoke-hRavelloRest @sDim
-    }
+    {Invoke-hRavelloRest @sDim}
   }
 }
 #endregion
@@ -3537,23 +3177,17 @@ function Get-RavelloKeyPair
     if ($KeyPairName)
     {
       $KeyPairId = Get-RavelloKeyPair |
-      Where-Object{
-        $_.Name -eq $KeyPairName
-      } |
+      Where-Object{$_.Name -eq $KeyPairName} |
       Select-Object -ExpandProperty id
     }
     if ($KeyPairId)
-    {
-      $sKeyPair.Request = $sKeyPair.Request.Replace('keypairs', "keypairs/$($KeyPairId)")
-    }
+    {$sKeyPair.Request = $sKeyPair.Request.Replace('keypairs', "keypairs/$($KeyPairId)")}
     If ($PSCmdlet.ShouldProcess('Get key pairs'))
     {
       $keypairs = Invoke-hRavelloRest @sKeyPair
       $keypairs | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3587,9 +3221,7 @@ function New-RavelloKeyPair
     }
 		
     if ($Generate)
-    {
-      $sKeyPair.Request = 'keypairs/generate'
-    }
+    {$sKeyPair.Request = 'keypairs/generate'}
     else
     {
       $sKeyPair.Add('Body', @{
@@ -3602,9 +3234,7 @@ function New-RavelloKeyPair
       $keypair = Invoke-hRavelloRest @sKeyPair
       $keypair | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3635,9 +3265,7 @@ function Set-RavelloKeyPair
     if ($KeyPairName)
     {
       $KeyPairId = Get-RavelloKeyPair |
-      Where-Object{
-        $_.Name -eq $KeyPairName
-      } |
+      Where-Object{$_.Name -eq $KeyPairName} |
       Select-Object -ExpandProperty id
     }
     $sKeyPair = @{
@@ -3653,9 +3281,7 @@ function Set-RavelloKeyPair
       $keypair = Invoke-hRavelloRest @sKeyPair
       $keypair | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3683,9 +3309,7 @@ function Remove-RavelloKeyPair
     if ($KeyPairName)
     {
       $KeyPairId = Get-RavelloKeyPair |
-      Where-Object{
-        $_.Name -eq $KeyPairName
-      } |
+      Where-Object{$_.Name -eq $KeyPairName} |
       Select-Object -ExpandProperty id
     }
     $sKeyPair = @{
@@ -3693,9 +3317,7 @@ function Remove-RavelloKeyPair
       Request = "keypairs/$($KeyPairId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove key pair'))
-    {
-      Invoke-hRavelloRest @sKeyPair
-    }
+    {Invoke-hRavelloRest @sKeyPair}
   }
 }
 #endregion
@@ -3725,9 +3347,7 @@ function Get-RavelloElasticIP
       $eIP = Invoke-hRavelloRest @sElasticIP
       $eIP | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3756,27 +3376,21 @@ function New-RavelloElasticIP
     $sElasticIP = @{
       Method  = 'Post'
       Request = 'elasticIps'
-      Body = @{
+      Body    = @{
         location = $Location
       }
     }
     if($Name)
-    {
-      $sElasticIP.Body.Add('name',$Name)
-    }
+    {$sElasticIP.Body.Add('name',$Name)}
     if($Description)
-    {
-      $sElasticIP.Body.Add('description',$Description)
-    }
+    {$sElasticIP.Body.Add('description',$Description)}
         
     If ($PSCmdlet.ShouldProcess('Create elastic IP'))
     {
       $eIP = Invoke-hRavelloRest @sElasticIP
       $eIP | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -3804,9 +3418,7 @@ function Remove-RavelloElasticIP
       Request = "elasticIps/$($ElasticIpAddress)"
     }
     If ($PSCmdlet.ShouldProcess('Remove elastic IP'))
-    {
-      Invoke-hRavelloRest @sElasticIP
-    }
+    {Invoke-hRavelloRest @sElasticIP}
   }
 }
 
@@ -3827,9 +3439,7 @@ function Get-RavelloElasticIPLocation
       Request = 'elasticIps/locations'
     }
     If ($PSCmdlet.ShouldProcess('Get elastic IP locations'))
-    {
-      Invoke-hRavelloRest @sElasticIP
-    }
+    {Invoke-hRavelloRest @sElasticIP}
   }
 }
 
@@ -3864,26 +3474,18 @@ function Get-RavelloOrganization
     if ($OrganizationName)
     {
       $OrganizationId = Get-RavelloOrganization |
-      Where-Object{
-        $_.organizationName -eq $OrganizationName
-      } |
+      Where-Object{$_.organizationName -eq $OrganizationName} |
       Select-Object -ExpandProperty id
     }
     if ($OrganizationId)
     {
       if ($Users)
-      {
-        $sOrg.Request = $sOrg.Request.Replace('organization', "organizations/$([String]$OrganizationId)/users")
-      }
+      {$sOrg.Request = $sOrg.Request.Replace('organization', "organizations/$([String]$OrganizationId)/users")}
       else
-      {
-        $sOrg.Request = $sOrg.Request.Replace('organization', "organizations/$([String]$OrganizationId)")
-      }
+      {$sOrg.Request = $sOrg.Request.Replace('organization', "organizations/$([String]$OrganizationId)")}
     }
     If ($PSCmdlet.ShouldProcess('Get Organization'))
-    {
-      Invoke-hRavelloRest @sOrg
-    }
+    {Invoke-hRavelloRest @sOrg}
   }
 }
 
@@ -3910,9 +3512,7 @@ function Set-RavelloOrganization
     if ($OrganizationName)
     {
       $OrganizationId = Get-RavelloOrganization |
-      Where-Object{
-        $_.organizationName -eq $OrganizationName
-      } |
+      Where-Object{$_.organizationName -eq $OrganizationName} |
       Select-Object -ExpandProperty id
     }
     $sOrganization = @{
@@ -3923,9 +3523,7 @@ function Set-RavelloOrganization
       }
     }
     If ($PSCmdlet.ShouldProcess('Change organization'))
-    {
-      Invoke-hRavelloRest @sOrganization
-    }
+    {Invoke-hRavelloRest @sOrganization}
   }
 }
 #endregion
@@ -3959,37 +3557,25 @@ function Get-RavelloUser
       Method = 'Get'
     }
     if (($FirstName -and $LastName) -or ($UserId -ne 0))
-    {
-      $All = $True
-    }
+    {$All = $True}
     if ($All)
-    {
-      $sUser.Add('Request', 'users')
-    }
+    {$sUser.Add('Request', 'users')}
     else
-    {
-      $sUser.Add('Request', 'user')
-    }
+    {$sUser.Add('Request', 'user')}
     If ($PSCmdlet.ShouldProcess('Get users'))
     {
       $Users = Invoke-hRavelloRest @sUser
       if ($UserId -ne 0)
       {
-        $Users = $Users | Where-Object{
-          $_.id -eq $UserId
-        }
+        $Users = $Users | Where-Object{$_.id -eq $UserId}
       }
       if ($FirstName -and $LastName)
       {
-        $Users = $Users | Where-Object{
-          "$($_.name) $($_.surname)" -eq "$($FirstName) $($LastName)"
-        }
+        $Users = $Users | Where-Object{"$($_.name) $($_.surname)" -eq "$($FirstName) $($LastName)"}
       }
       $Users | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4025,9 +3611,7 @@ function New-RavelloUser
     if ($OrganizationName)
     {
       $OrganizationId = Get-RavelloOrganization |
-      Where-Object{
-        $_.organizationName -eq $OrganizationName
-      } |
+      Where-Object{$_.organizationName -eq $OrganizationName} |
       Select-Object -ExpandProperty id
     }
     # New users are added by default to the Users group
@@ -4047,9 +3631,7 @@ function New-RavelloUser
       $Users = Invoke-hRavelloRest @sUser
       $Users | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4057,11 +3639,11 @@ function New-RavelloUser
 }
 
 <# Open issue 12580
-# .ExternalHelp Ravello-Help.xml
-function Set-RavelloUser
-{
-  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
-  param (
+    # .ExternalHelp Ravello-Help.xml
+    function Set-RavelloUser
+    {
+    [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
+    param (
     [Parameter(Mandatory = $True, ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$UserId,
@@ -4071,55 +3653,55 @@ function Set-RavelloUser
     [string[]]$NewRoles,
     [Parameter(DontShow)]
     [switch]$Raw
-  )
+    )
 	
-  Process
-  {
+    Process
+    {
     Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
     Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
     $user = Get-RavelloUser -UserId $UserId
     $sUser = @{
-      Method  = 'Put'
-      Request = "users/$($UserId)"
-      Body    = @{
-        id = $user.id
-        nickname = $user.nickname
-        name = $user.name
-        surname = $user.surname
-        roles = $user.roles
-      }
+    Method  = 'Put'
+    Request = "users/$($UserId)"
+    Body    = @{
+    id = $user.id
+    nickname = $user.nickname
+    name = $user.name
+    surname = $user.surname
+    roles = $user.roles
+    }
     }
     if($NewEmailAddress)
     {
-        $sUser.Body.email = $NewEmailAddress
+    $sUser.Body.email = $NewEmailAddress
     }
     if($NewFirstName)
     {
-        $sUser.Body.name = $NewFirstName
+    $sUser.Body.name = $NewFirstName
     }
     if($NewLastName)
     {
-        $sUser.Body.surname = $NewLastName
+    $sUser.Body.surname = $NewLastName
     }
     if($NewRoles)
     {
-        $sUser.Body.roles = $NewRoles
+    $sUser.Body.roles = $NewRoles
     }
     If ($PSCmdlet.ShouldProcess('Change user'))
     {
-      $User = Invoke-hRavelloRest @sUser
-      $User | ForEach-Object{
-        if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
-        $_
-      }
+    $User = Invoke-hRavelloRest @sUser
+    $User | ForEach-Object{
+    if(!$Raw)
+    {
+    Convert-hRavelloTimeField -Object $_
     }
-  }
-}
+    $_
+    }
+    }
+    }
+    }
 #>
 
 # .ExternalHelp Ravello-Help.xml
@@ -4148,16 +3730,12 @@ function Set-RavelloUserPassword
 
     if ($LastName -and $FirstName)
     {
-      $User = Get-RavelloUser -All | Where-Object{
-        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
-      }
+      $User = Get-RavelloUser -All | Where-Object{$_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress}
       $UserId = $User.id
     }
     else
     {
-      $User = Get-RavelloUser | Where-Object{
-        $_.id -eq $UserId
-      }
+      $User = Get-RavelloUser | Where-Object{$_.id -eq $UserId}
     }
     $sUser = @{
       Method  = 'Put'
@@ -4168,9 +3746,7 @@ function Set-RavelloUserPassword
       }
     }
     If ($PSCmdlet.ShouldProcess('Change user password'))
-    {
-      Invoke-hRavelloRest @sUser
-    }
+    {Invoke-hRavelloRest @sUser}
   }
 }
 
@@ -4196,9 +3772,7 @@ function Disable-RavelloUser
 
     if ($LastName -and $FirstName)
     {
-      $User = Get-RavelloUser -All | Where-Object{
-        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
-      }
+      $User = Get-RavelloUser -All | Where-Object{$_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress}
       $UserId = $User.id
     }
     $sUser = @{
@@ -4206,9 +3780,7 @@ function Disable-RavelloUser
       Request = "users/$($UserId)/disable"
     }
     If ($PSCmdlet.ShouldProcess('Disable user'))
-    {
-      Invoke-hRavelloRest @sUser
-    }
+    {Invoke-hRavelloRest @sUser}
   }	
 }
 
@@ -4234,9 +3806,7 @@ function Enable-RavelloUser
 
     if ($LastName -and $FirstName)
     {
-      $User = Get-RavelloUser -All | Where-Object{
-        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
-      }
+      $User = Get-RavelloUser -All | Where-Object{$_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress}
       $UserId = $User.id
     }
     $sUser = @{
@@ -4244,9 +3814,7 @@ function Enable-RavelloUser
       Request = "users/$($UserId)/enable"
     }
     If ($PSCmdlet.ShouldProcess('Enable user'))
-    {
-      Invoke-hRavelloRest @sUser
-    }
+    {Invoke-hRavelloRest @sUser}
   }	
 }
 
@@ -4272,9 +3840,7 @@ function Remove-RavelloUser
 
     if ($LastName -and $FirstName)
     {
-      $User = Get-RavelloUser -All | Where-Object{
-        $_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress
-      }
+      $User = Get-RavelloUser -All | Where-Object{$_.name -eq $FirstName -and $_.surname -eq $LastName -and $_.email -eq $EmailAddress}
       $UserId = $User.id
     }
     $sUser = @{
@@ -4282,9 +3848,7 @@ function Remove-RavelloUser
       Request = "users/$($UserId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove user'))
-    {
-      Invoke-hRavelloRest @sUser
-    }
+    {Invoke-hRavelloRest @sUser}
     
   }	
 }
@@ -4326,50 +3890,34 @@ function Get-RavelloShare
     $q = @()
     if($SharedResourceName)
     {
-      $shr = Get-RavelloShare | Where-Object{
-        $_.name -eq $SharedResourceName
-      }
+      $shr = Get-RavelloShare | Where-Object{$_.name -eq $SharedResourceName}
       $SharedResourceId = $shr.id
     }
     if ($SharedResourceId -ne 0)
-    {
-      $q += "sharedResourceId=$($SharedResourceId)"
-    }
+    {$q += "sharedResourceId=$($SharedResourceId)"}
     if($SharingUserFirstName -and $SharingUserLastName)
     {
       $User = Get-RavelloUser -FirstName $SharingUserFirstName -LastName $SharingUserLastName
       $SharingUserId = $User.id
     }
     if($SharingUserId)
-    {
-      $q += "sharingUserId=$($SharingUserId)"
-    }
+    {$q += "sharingUserId=$($SharingUserId)"}
     if($TargetEmail)
-    {
-      $q += "targetEmail=$($TargetEmail)"
-    }
+    {$q += "targetEmail=$($TargetEmail)"}
     if($ResourceType)
-    {
-      $q += "sharedResourceType=$($ResourceType)"
-    }
+    {$q += "sharedResourceType=$($ResourceType)"}
     if($q)
-    {
-      $sShare.Request = $sShare.Request, ($q -join '&') -join '?'
-    }
+    {$sShare.Request = $sShare.Request, ($q -join '&') -join '?'}
     If ($PSCmdlet.ShouldProcess('Get share'))
     {
       $shares = Invoke-hRavelloRest @sShare
       if($ShareId -ne 0)
       {
-        $shares = $shares | Where-Object{
-          $_.id -eq $ShareId
-        }
+        $shares = $shares | Where-Object{$_.id -eq $ShareId}
       }
       $shares | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4429,9 +3977,7 @@ function Grant-RavelloShare
       }
     }
     If ($PSCmdlet.ShouldProcess('Grant share access'))
-    {
-      Invoke-hRavelloRest @sShare
-    }    
+    {Invoke-hRavelloRest @sShare}    
   }
 }
 
@@ -4456,9 +4002,7 @@ function Revoke-RavelloShare
       Request = "shares/$($ShareId)"
     }
     If ($PSCmdlet.ShouldProcess('Revoke share access'))
-    {
-      Invoke-hRavelloRest @sShare
-    }    
+    {Invoke-hRavelloRest @sShare}    
   }
 }
 #endregion
@@ -4488,28 +4032,20 @@ function Get-RavelloCommunity
     }
     if($CommunityName)
     {
-      $com = Get-RavelloCommunity | Where-Object{
-        $_.Name -eq $CommunityName
-      }
+      $com = Get-RavelloCommunity | Where-Object{$_.Name -eq $CommunityName}
       $CommunityId = $com.id
     }
     if($CommunityId)
-    {
-      $sCom.Request = $sCom.Request, "/$($CommunityId)" -join '/'
-    }
+    {$sCom.Request = $sCom.Request, "/$($CommunityId)" -join '/'}
     If ($PSCmdlet.ShouldProcess('Get community'))
     {
       $comm = Invoke-hRavelloRest @sCom
       if ($CommunityName)
       {
-        $comm | Where-Object{
-          $CommunityName -like $CommunityName 
-        }
+        $comm | Where-Object{$CommunityName -like $CommunityName}
       }
       else
-      {
-        $comm 
-      }
+      {$comm}
     }
   }
 }
@@ -4542,9 +4078,7 @@ function Get-RavelloRepoBlueprint
     {
       $communities = Get-RavelloCommunity
       $CommunityId = $communities |
-      Where-Object{
-        $_.name -eq $CommunityName
-      } |
+      Where-Object{$_.name -eq $CommunityName} |
       Select-Object -ExpandProperty id
     }
     $sRepo = @{
@@ -4552,29 +4086,19 @@ function Get-RavelloRepoBlueprint
       Request = "communities/$($CommunityId)/blueprints"
     }
     if ($BlueprintId -eq 0 -and !$BlueprintName)
-    {
-      $mask = '*' 
-    }
+    {$mask = '*'}
     elseif ($BlueprintName)
-    {
-      $mask = $BlueprintName 
-    }
+    {$mask = $BlueprintName}
     else
-    {
-      $mask = "^$" 
-    }
+    {$mask = "^$"}
     If ($PSCmdlet.ShouldProcess('Get blueprint from Ravello Repo'))
     {
       $bp = Invoke-hRavelloRest @sRepo
       $bp |
-      Where-Object{
-        $_.id -eq $BlueprintId -or $_.Name -like $mask 
-      } |
+      Where-Object{$_.id -eq $BlueprintId -or $_.Name -like $mask} |
       ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4609,9 +4133,7 @@ function Get-RavelloRepoDisk
     {
       $communities = Get-RavelloCommunity
       $CommunityId = $communities |
-      Where-Object{
-        $_.name -eq $CommunityName
-      } |
+      Where-Object{$_.name -eq $CommunityName} |
       Select-Object -ExpandProperty id
     }
     $sRepo = @{
@@ -4619,29 +4141,19 @@ function Get-RavelloRepoDisk
       Request = "communities/$($CommunityId)/diskImages"
     }
     if ($DiskId -eq 0 -and !$DiskName)
-    {
-      $mask = '*' 
-    }
+    {$mask = '*'}
     elseif ($DiskName)
-    {
-      $mask = $DiskName 
-    }
+    {$mask = $DiskName}
     else
-    {
-      $mask = "^$" 
-    }
+    {$mask = "^$"}
     If ($PSCmdlet.ShouldProcess('Get disks from Ravello Repo'))
     {
       $disk = Invoke-hRavelloRest @sRepo
       $disk |
-      Where-Object{
-        $_.id -eq $DiskId -or $_.Name -like $mask 
-      } |
+      Where-Object{$_.id -eq $DiskId -or $_.Name -like $mask} |
       ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4678,9 +4190,7 @@ function Get-RavelloRepoVm
     {
       $communities = Get-RavelloCommunity
       $CommunityId = $communities |
-      Where-Object{
-        $_.name -eq $CommunityName
-      } |
+      Where-Object{$_.name -eq $CommunityName} |
       Select-Object -ExpandProperty id
     }
     $sRepo = @{
@@ -4688,29 +4198,19 @@ function Get-RavelloRepoVm
       Request = "communities/$($CommunityId)/images"
     }
     if ($VmId -eq 0 -and !$VmName)
-    {
-      $mask = '*' 
-    }
+    {$mask = '*'}
     elseif ($VmName)
-    {
-      $mask = $VmName 
-    }
+    {$mask = $VmName}
     else
-    {
-      $mask = "^$" 
-    }
+    {$mask = "^$"}
     If ($PSCmdlet.ShouldProcess('Get blueprint from Ravello Repo'))
     {
       $vm = Invoke-hRavelloRest @sRepo
       $vm |
-      Where-Object{
-        $_.id -eq $VmId -or $_.Name -like $mask 
-      } |
+      Where-Object{$_.id -eq $VmId -or $_.Name -like $mask} |
       ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4743,13 +4243,9 @@ function Copy-RavelloRepoBlueprint
       $BlueprintId = $bp.id
     }
     elseif ($BlueprintId)
-    {
-      $bp = Get-RavelloRepo | Get-RavelloRepoBlueprint -BlueprintId $BlueprintId
-    }
+    {$bp = Get-RavelloRepo | Get-RavelloRepoBlueprint -BlueprintId $BlueprintId}
     if (!$Description)
-    {
-      $Description = "Copy of $($bp.name)"
-    }
+    {$Description = "Copy of $($bp.name)"}
     $sRepo = @{
       Method  = 'Post'
       Request = 'blueprints'
@@ -4762,9 +4258,7 @@ function Copy-RavelloRepoBlueprint
       }
     }
     If ($PSCmdlet.ShouldProcess('Copy blueprint from Repo'))
-    {
-      Invoke-hRavelloRest @sRepo
-    }
+    {Invoke-hRavelloRest @sRepo}
   }
 }
 
@@ -4794,13 +4288,9 @@ function Copy-RavelloRepoDisk
       $DiskId = $disk.id
     }
     elseif ($DiskId)
-    {
-      $disk = Get-RavelloRepo | Get-RavelloRepoDisk -DiskId $DiskId
-    }
+    {$disk = Get-RavelloRepo | Get-RavelloRepoDisk -DiskId $DiskId}
     if (!$Description)
-    {
-      $Description = "Copy of $($disk.name)"
-    }
+    {$Description = "Copy of $($disk.name)"}
     $sRepo = @{
       Method  = 'Post'
       Request = 'diskImages'
@@ -4813,9 +4303,7 @@ function Copy-RavelloRepoDisk
       }
     }
     If ($PSCmdlet.ShouldProcess('Copy disk from Repo'))
-    {
-      Invoke-hRavelloRest @sRepo
-    }
+    {Invoke-hRavelloRest @sRepo}
   }
 }
 
@@ -4845,13 +4333,9 @@ function Copy-RavelloRepoVm
       $VmId = $vm.id
     }
     elseif ($VmId)
-    {
-      $vm = Get-RavelloRepo | Get-RavelloRepoVm -VmId $VmId
-    }
+    {$vm = Get-RavelloRepo | Get-RavelloRepoVm -VmId $VmId}
     if (!$Description)
-    {
-      $Description = "Copy of $($vm.name)"
-    }
+    {$Description = "Copy of $($vm.name)"}
     $sRepo = @{
       Method  = 'Post'
       Request = 'images'
@@ -4864,9 +4348,7 @@ function Copy-RavelloRepoVm
       }
     }
     If ($PSCmdlet.ShouldProcess('Copy VM from Repo'))
-    {
-      Invoke-hRavelloRest @sRepo
-    }
+    {Invoke-hRavelloRest @sRepo}
   }
 }
 #endregion
@@ -4898,27 +4380,19 @@ function Get-RavelloEphemeralAccessToken
     }
     if($EphemeralAccessTokenName)
     {
-      $tok = Get-RavelloEphemeralAccessToken | Where-Object{
-        $_.Name -eq $EphemeralAccessTokenName
-      }
+      $tok = Get-RavelloEphemeralAccessToken | Where-Object{$_.Name -eq $EphemeralAccessTokenName}
       $EphemeralAccessTokenId = $tok.id
     }
     if($EphemeralAccessTokenId)
-    {
-      $sTok.Request = $sTok.Request, "$($EphemeralAccessTokenId)" -join '/'
-    }
+    {$sTok.Request = $sTok.Request, "$($EphemeralAccessTokenId)" -join '/'}
     If ($PSCmdlet.ShouldProcess('Get ephemeral access token'))
     {
       $token = Invoke-hRavelloRest @sTok
       $token | 
-      Where-Object{
-        $_.name -match $EphemeralAccessTokenName
-      } |
+      Where-Object{$_.name -match $EphemeralAccessTokenName} |
       ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -4951,24 +4425,16 @@ function New-RavelloEphemeralAccessToken
       }
     }
     if($ExpirationTime)
-    {
-      $sTok.Body.Add('expirationTime', (ConvertTo-hRavelloJsonDateTime -Date $ExpirationTime))
-    }
+    {$sTok.Body.Add('expirationTime', (ConvertTo-hRavelloJsonDateTime -Date $ExpirationTime))}
     if($Description)
-    {
-      $sTok.Body.Add('description', $Description)
-    }
+    {$sTok.Body.Add('description', $Description)}
     if($Permissions)
-    {
-      $sTok.Body.Add('permissions', $Permissions)
-    }
+    {$sTok.Body.Add('permissions', $Permissions)}
     If ($PSCmdlet.ShouldProcess('Create ephemeral access token'))
     {
       $token = Invoke-hRavelloRest @sTok
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $token
-      }
+      {Convert-hRavelloTimeField -Object $token}
       $token
     }
   }
@@ -5004,33 +4470,23 @@ function Set-RavelloEphemeralAccessToken
       $EphemeralAccessTokenId = $token.id
     }
     else
-    {
-      $token = Get-RavelloEphemeralAccessToken -EphemeralAccessTokenId $EphemeralAccessTokenId -Raw
-    }
+    {$token = Get-RavelloEphemeralAccessToken -EphemeralAccessTokenId $EphemeralAccessTokenId -Raw}
 
     if(!$NewName)
-    {
-      $NewName = $token.name
-    }
+    {$NewName = $token.name}
     if(!$NewDescription)
-    {
-      $NewDescription = $token.description
-    }
+    {$NewDescription = $token.description}
     if(!$NewExpirationTime)
-    {
-      $NewExpirationTime = $token.expirationTime
-    }
+    {$NewExpirationTime = $token.expirationTime}
     if(!$NewPermissions)
-    {
-      $NewPermissions = $token.permissions
-    }
+    {$NewPermissions = $token.permissions}
     
     $sTok = @{
       Method  = 'Put'
       Request = "ephemeralAccessTokens/$($EphemeralAccessTokenId)"
-      Body = @{
-        id = $EphemeralAccessTokenId
-        name = $NewName
+      Body    = @{
+        id          = $EphemeralAccessTokenId
+        name        = $NewName
         description = $NewDescription
         permissions = $NewPermissions
       }
@@ -5040,14 +4496,10 @@ function Set-RavelloEphemeralAccessToken
     {
       $token = Invoke-hRavelloRest @sTok
       $token | 
-      Where-Object{
-        $_.name -match $EphemeralAccessTokenName
-      } |
+      Where-Object{$_.name -match $EphemeralAccessTokenName} |
       ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -5082,9 +4534,7 @@ function Remove-RavelloEphemeralAccessToken
       Request = "ephemeralAccessTokens/$($EphemeralAccessTokenId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove ephemeral access token'))
-    {
-      Invoke-hRavelloRest @sTok
-    }
+    {Invoke-hRavelloRest @sTok}
   }	
 }
 #endregion
@@ -5125,35 +4575,23 @@ function Get-RavelloPermissionsGroup
     }
     if ($PermissionGroupName)
     {
-      $pg = Get-RavelloPermissionsGroup | Where-Object{
-        $_.name -eq $PermissionGroupName
-      }
+      $pg = Get-RavelloPermissionsGroup | Where-Object{$_.name -eq $PermissionGroupName}
       $PermissionGroupId = $pg.id
     }
     if ($PermissionGroupId)
-    {
-      $sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups', "permissionsGroups/$([String]$PermissionGroupId)")
-    }
+    {$sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups', "permissionsGroups/$([String]$PermissionGroupId)")}
     if ($Users)
-    {
-      $sPGroup.Request = $sPGroup.Request, 'users' -join '/'
-    }
+    {$sPGroup.Request = $sPGroup.Request, 'users' -join '/'}
     if ($FirstName -and $LastName)
-    {
-      $UserId = Get-RavelloUser -FirstName $FirstName -LastName $LastName | Select-Object -ExpandProperty id
-    }
+    {$UserId = Get-RavelloUser -FirstName $FirstName -LastName $LastName | Select-Object -ExpandProperty id}
     if ($UserId)
-    {
-      $sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups', "permissionsGroups?userId=$([String]$UserId)")
-    }
+    {$sPGroup.Request = $sPGroup.Request.Replace('permissionsGroups', "permissionsGroups?userId=$([String]$UserId)")}
     If ($PSCmdlet.ShouldProcess('Get permissions group'))
     {
       $groups = Invoke-hRavelloRest @sPGroup
       $groups | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -5193,9 +4631,7 @@ function New-RavelloPermissionsGroup
       $pg = Invoke-hRavelloRest @sPGroup
       $pg | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -5231,35 +4667,25 @@ function Set-RavelloPermissionsGroup
       $PermissionGroupId = $pg.id
     }
     else
-    {
-      $pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId -Raw
-    }
+    {$pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId -Raw}
     $sPGroup = @{
       Method  = 'Put'
       Request = "permissionsGroups/$($PermissionGroupId)"
       Body    = $pg
     }
     if ($NewName)
-    {
-      $sPGroup.Body.name = $NewName
-    }
+    {$sPGroup.Body.name = $NewName}
     if ($NewDescription)
-    {
-      $sPGroup.Body.description = $NewDescription
-    }
+    {$sPGroup.Body.description = $NewDescription}
     if ($NewPermissions)
-    {
-      $sPGroup.Body.permissions = $NewPermissions
-    }
-#    $sPGroup.Body.creationTime = ConvertTo-hRavelloJsonDateTime -Date $sPGroup.Body.creationTime
+    {$sPGroup.Body.permissions = $NewPermissions}
+    #    $sPGroup.Body.creationTime = ConvertTo-hRavelloJsonDateTime -Date $sPGroup.Body.creationTime
     If ($PSCmdlet.ShouldProcess('Change permissions group'))
     {
       $pg = Invoke-hRavelloRest @sPGroup
       $pg | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -5303,9 +4729,7 @@ function Add-RavelloPermissionsGroupUser
       $PermissionGroupId = $pg.id
     }
     else
-    {
-      $pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId
-    }
+    {$pg = Get-RavelloPermissionsGroup -PermissionGroupId $PermissionGroupId}
     if ($FirstName -and $LastName)
     {
       $User = Get-RavelloUser -FirstName $FirstName -LastName $LastName
@@ -5323,9 +4747,7 @@ function Add-RavelloPermissionsGroupUser
       $pg = Invoke-hRavelloRest @sPGroup
       $pg | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -5388,9 +4810,7 @@ function Remove-RavelloPermissionsGroup
       $groups = Invoke-hRavelloRest @sPGroup
       $groups | ForEach-Object{
         if(!$Raw)
-        {
-          Convert-hRavelloTimeField -Object $_
-        }
+        {Convert-hRavelloTimeField -Object $_}
         $_
       }
     }
@@ -5402,9 +4822,7 @@ function Get-RavelloPermissionDescriptor
 {
   [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
   param (
-    [ValidateScript({
-          (Get-RavelloPermissionDescriptor).resourceType -contains $_
-    })]
+    [ValidateScript({(Get-RavelloPermissionDescriptor).resourceType -contains $_})]
     [string[]]$ResourceType
   )
 	
@@ -5423,14 +4841,10 @@ function Get-RavelloPermissionDescriptor
       $descriptors = Invoke-hRavelloRest @sPGroup
       if($ResourceType)
       {
-        $descriptors | Where-Object{
-          $ResourceType -contains $_.resourceType
-        }
+        $descriptors | Where-Object{$ResourceType -contains $_.resourceType}
       }
       else
-      {
-        $descriptors
-      }
+      {$descriptors}
     }
   }
 }
@@ -5470,50 +4884,32 @@ function Get-RavelloNotification
     {
       $app = Get-RavelloApplication -ApplicationName $ApplicationName
       if ($app)
-      {
-        $ApplicationId = $app.id
-      }
+      {$ApplicationId = $app.id}
     }
     if ($ApplicationId)
-    {
-      $sNotification.Body.Add('appId', $ApplicationId)
-    }
+    {$sNotification.Body.Add('appId', $ApplicationId)}
     if ($NotificationLevel)
-    {
-      $sNotification.Body.Add('notificationLevel', $NotificationLevel)
-    }
+    {$sNotification.Body.Add('notificationLevel', $NotificationLevel)}
     if ($MaxResults)
-    {
-      $sNotification.Body.Add('maxResults', $MaxResults)
-    }
+    {$sNotification.Body.Add('maxResults', $MaxResults)}
     if ($Start -or $Finish)
     {
       $dtObj = @{}
       if($Start)
-      {
-        $dtObj.Add('startTime',(ConvertTo-hRavelloJsonDateTime -Date $Start.ToLocalTime()))
-      }
+      {$dtObj.Add('startTime',(ConvertTo-hRavelloJsonDateTime -Date $Start.ToLocalTime()))}
       else
-      {
-        $dtObj.Add('startTime',(ConvertTo-hRavelloJsonDateTime -Date (Get-Date '1/1/1970').ToLocalTime()))
-      }
+      {$dtObj.Add('startTime',(ConvertTo-hRavelloJsonDateTime -Date (Get-Date -Date '1/1/1970').ToLocalTime()))}
       if($Finish)
-      {
-        $dtObj.Add('endTime',(ConvertTo-hRavelloJsonDateTime -Date $Finish.ToLocalTime()))
-      }
+      {$dtObj.Add('endTime',(ConvertTo-hRavelloJsonDateTime -Date $Finish.ToLocalTime()))}
       else
-      {
-        $dtObj.Add('endTime',(ConvertTo-hRavelloJsonDateTime -Date (Get-Date).ToLocalTime()))
-      }
+      {$dtObj.Add('endTime',(ConvertTo-hRavelloJsonDateTime -Date (Get-Date).ToLocalTime()))}
       $sNotification.Body.Add('dateRange', $dtObj)
     }
     If ($PSCmdlet.ShouldProcess('Get notifications'))
     {
       $notifications = Invoke-hRavelloRest @sNotification
       if(!$Raw)
-      {
-        Convert-hRavelloTimeField -Object $notifications
-      }
+      {Convert-hRavelloTimeField -Object $notifications}
       $notifications
     }
   }
@@ -5539,9 +4935,7 @@ function Get-RavelloUserAlert
     }
 		
     If ($PSCmdlet.ShouldProcess('Get user alerts'))
-    {
-      Invoke-hRavelloRest @sUAlert
-    }
+    {Invoke-hRavelloRest @sUAlert}
   }
 }
 
@@ -5551,9 +4945,7 @@ function New-RavelloUserAlert
   [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Medium')]
   param (
     [Parameter(Mandatory = $True)]
-    [ValidateScript({
-          (Get-RavelloEvent) -contains $_
-    })]
+    [ValidateScript({(Get-RavelloEvent) -contains $_})]
     [string]$EventName,
     [Parameter(ParameterSetName = 'UserId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
@@ -5583,13 +4975,9 @@ function New-RavelloUserAlert
       }
     }
     if ($UserId)
-    {
-      $sUAlert.Body.Add('userId', $UserId)
-    }
+    {$sUAlert.Body.Add('userId', $UserId)}
     If ($PSCmdlet.ShouldProcess('Change user alerts'))
-    {
-      Invoke-hRavelloRest @sUAlert
-    }
+    {Invoke-hRavelloRest @sUAlert}
   }
 }
 
@@ -5614,9 +5002,7 @@ function Remove-RavelloUserAlert
       Request = "userAlerts/$($EventId)"
     }
     If ($PSCmdlet.ShouldProcess('Remove user alert'))
-    {
-      Invoke-hRavelloRest @sUAlert
-    }
+    {Invoke-hRavelloRest @sUAlert}
   }
 }
 #endregion
@@ -5639,9 +5025,7 @@ function Get-RavelloEvent
       Request = 'events'
     }
     If ($PSCmdlet.ShouldProcess('Get events'))
-    {
-      Invoke-hRavelloRest @sEvent
-    }
+    {Invoke-hRavelloRest @sEvent}
   }
 }
 #endregion
@@ -5667,13 +5051,9 @@ function Get-RavelloBilling
       Request = 'billing'
     }
     if ($Year -and $Month)
-    {
-      $sBill.Request = $sBill.Request.Replace('billing', "billing?year=$('{0:D4}' -f [int]$Year)&month=$('{0:D2}' -f [int]$Month)")
-    }
+    {$sBill.Request = $sBill.Request.Replace('billing', "billing?year=$('{0:D4}' -f [int]$Year)&month=$('{0:D2}' -f [int]$Month)")}
     If ($PSCmdlet.ShouldProcess('Get billing'))
-    {
-      Invoke-hRavelloRest @sBill
-    }
+    {Invoke-hRavelloRest @sBill}
   }
 }
 #endregion
@@ -5710,9 +5090,7 @@ function New-RavelloPermission
   [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'Low')]
   param(
     [Parameter(Mandatory = $True)]
-    [ValidateScript({
-          (Get-RavelloPermissionDescriptor).resourceType -contains $_
-    })]
+    [ValidateScript({(Get-RavelloPermissionDescriptor).resourceType -contains $_})]
     [string]$ResourceType,
     [Parameter(Mandatory = $True)]
     [string[]]$Action,
@@ -5763,7 +5141,7 @@ function Get-RavelloEphemeralTokenURL
       EndUser   = ''
       RavelloUI = "https://cloud.ravellosystems.com/#/$($token.token)"
     }
-    $apps = $token.permissions | where{$_.ResourceType -eq 'APPLICATION'}
+    $apps = $token.permissions | Where-Object{$_.ResourceType -eq 'APPLICATION'}
     if(($apps | Measure-Object).Count -eq 1)
     {
       $appId = $apps.filterCriterion.criteria.operand
@@ -5791,9 +5169,7 @@ function Get-RavelloUsage
       Request = 'limits'
     }
     If ($PSCmdlet.ShouldProcess('List Usage'))
-    {
-      (Invoke-hRavelloRest @sEvent).Limitation
-    }
+    {(Invoke-hRavelloRest @sEvent).Limitation}
   }
 }
 #endregion
