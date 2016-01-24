@@ -1,0 +1,15 @@
+TOPIC
+	Ravello
+
+SYNOPSIS
+	Ravello Systems offers a cloud service powered by nested virtualization. 
+	You can run VMware or KVM workloads on AWS or Google without modifications.
+
+DESCRIPTION
+	Ravello Systems developed a Web GUI to manipulate your Applications and
+	Blueprints.
+	With this PowerShell module, that is based on the Ravello REST API v1.1,
+	the creation and control of all Applications can be fully automated.
+
+  SEE ALSO
+	https://www.ravellosystems.com/
