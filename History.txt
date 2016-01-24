@@ -12,3 +12,5 @@ v1.1.2.1 - 23 Jan 2016
 - code update after Script Analyzer run
 v1.1.2.2 - 24 Jan 2016
 - fix spelling
+v1.1.2.3 - 24 Jan 2016
+- added parametersets AppId and AppName to Get-RavelloApplicationVm

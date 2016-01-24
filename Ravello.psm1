@@ -1089,10 +1089,12 @@ function Get-RavelloApplicationVm
   param (
     [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
     [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId', ValueFromPipelineByPropertyName)]
     [Alias('id')]
     [long]$ApplicationId,
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName')]
     [string]$ApplicationName,
     [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
@@ -1117,16 +1119,26 @@ function Get-RavelloApplicationVm
       $app = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw
       $ApplicationId = $app.id
     }
-    if($VmName)
+    if('AppId','AppName' -contains $PsCmdlet.ParameterSetName)
     {
-      $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
-      $VmId = $app.design.vms |
-      Where-Object{$_.name -eq $VmName} |
-      Select-Object -ExpandProperty id
+        $sAppVm = @{
+          Method  = 'Get'
+          Request = "applications/$($ApplicationId)/vms"
+        }        
     }
-    $sAppVm = @{
-      Method  = 'Get'
-      Request = "applications/$($ApplicationId)/vms/$($VmId)"
+    else
+    {
+        if($VmName)
+        {
+          $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
+          $VmId = $app.design.vms |
+          Where-Object{$_.name -eq $VmName} |
+          Select-Object -ExpandProperty id
+        }
+        $sAppVm = @{
+          Method  = 'Get'
+          Request = "applications/$($ApplicationId)/vms/$($VmId)"
+        }
     }
     if($Design)
     {$sAppVm.Request = $sAppVm.Request, 'design' -join ';'}
