@@ -14,3 +14,5 @@ v1.1.2.2 - 24 Jan 2016
 - fix spelling
 v1.1.2.3 - 24 Jan 2016
 - added parametersets AppId and AppName to Get-RavelloApplicationVm
+v1.1.2.4 - 26 Jan 2016
+- added Examples folder
