@@ -1,8 +1,1 @@
 Improve error checking
-<<<<<<< HEAD
-
-=======
-Add Examples
-Expand the Set-RavelloImage cmdlet with more options
-Create cmdlets to work with Supplied and Required services
->>>>>>> refs/remotes/origin/master
