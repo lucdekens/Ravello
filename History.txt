@@ -3,7 +3,18 @@ Author: Luc Dekens
 
 v1.0 - 28 Aug 2015
 - initial version
-v1.1 - 07 Sep 2015
+v1.1 - 11 Jan 2016
 - based on Ravello Systems REST API v1.1
 - added cmdlets for Ephemeral Access Tokens
 - completed Help pages
+v1.1.2.1 - 23 Jan 2016
+- added LICENSE.txt
+- code update after Script Analyzer run
+v1.1.2.2 - 24 Jan 2016
+- fix spelling
+v1.1.2.3 - 24 Jan 2016
+- added parametersets AppId and AppName to Get-RavelloApplicationVm
+v1.1.2.4 - 26 Jan 2016
+- added Examples folder
+v1.1.2.5 - 27 Jan 2016
+- fix internal Get-RavelloApplication calls with VmName parameter
