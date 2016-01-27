@@ -757,7 +757,7 @@ function Get-RavelloApplicationVmVnc
     {$app = Get-RavelloApplication -ApplicationId $ApplicationId}
     if ($VmId -ne 0)
     {
-      $vm = Get-RavelloApplication -ApplicationId $app.id -VmId $VmId -Deployment
+      $vm = Get-RavelloApplicationVm -ApplicationId $app.id -VmId $VmId -Deployment
       if ($vm.State -eq 'STARTED')
       {
         $sApp.Request = "applications/$($ApplicationId)/vms/$($VmId)/vncUrl"
@@ -932,7 +932,7 @@ function Get-RavelloApplicationVmState
     }
     if($VmName)
     {
-      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName
+      $vm = Get-RavelloApplicationVm -ApplicationId $ApplicationId -VmName $VmName
       $VmId = $vm.id
     }
     $sApp = @{
@@ -980,7 +980,7 @@ function Get-RavelloApplicationVmPublicIp
     }
     if($VmName)
     {
-      $vm = Get-RavelloApplication -ApplicationId $ApplicationId -VmName $VmName
+      $vm = Get-RavelloApplicationVm -ApplicationId $ApplicationId -VmName $VmName
       $VmId = $vm.id
     }
     $sApp = @{
