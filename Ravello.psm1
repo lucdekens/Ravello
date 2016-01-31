@@ -264,7 +264,7 @@ function Import-Ravello
         If ($PSCmdlet.ShouldProcess("Importing with $($cmd)"))
         {
           $result = &([scriptblock]::Create($cmd))
-#          $result = Invoke-Expression -Command $cmd
+          #          $result = Invoke-Expression -Command $cmd
           if (!($result -notmatch 'upload.finished.successfully'))
           {Write-Warning -Message 'Upload might have failed - check the log'}
         }
@@ -304,7 +304,7 @@ function Get-RavelloImportHistory
       $cmd = $cmd.Replace('#clipath#', $CliPath)
       If ($PSCmdlet.ShouldProcess("Listing import jobs with $($cmd)"))
       {
-#        Invoke-Expression -Command $cmd |
+        #        Invoke-Expression -Command $cmd |
         &([scriptblock]::Create($cmd)) |
         Out-String |
         Select-String -AllMatches -Pattern $pattern |
@@ -1125,24 +1125,24 @@ function Get-RavelloApplicationVm
     }
     if('AppId','AppName' -contains $PsCmdlet.ParameterSetName)
     {
-        $sAppVm = @{
-          Method  = 'Get'
-          Request = "applications/$($ApplicationId)/vms"
-        }        
+      $sAppVm = @{
+        Method  = 'Get'
+        Request = "applications/$($ApplicationId)/vms"
+      }        
     }
     else
     {
-        if($VmName)
-        {
-          $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
-          $VmId = $app.design.vms |
-          Where-Object{$_.name -eq $VmName} |
-          Select-Object -ExpandProperty id
-        }
-        $sAppVm = @{
-          Method  = 'Get'
-          Request = "applications/$($ApplicationId)/vms/$($VmId)"
-        }
+      if($VmName)
+      {
+        $app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw
+        $VmId = $app.design.vms |
+        Where-Object{$_.name -eq $VmName} |
+        Select-Object -ExpandProperty id
+      }
+      $sAppVm = @{
+        Method  = 'Get'
+        Request = "applications/$($ApplicationId)/vms/$($VmId)"
+      }
     }
     if($Design)
     {$sAppVm.Request = $sAppVm.Request, 'design' -join ';'}
@@ -1214,7 +1214,7 @@ function Set-RavelloApplicationVm
           }
           else
           {
-           Add-Member -InputObject $_ -Name 'hostnames' -Value $HostNames -MemberType NoteProperty
+            Add-Member -InputObject $_ -Name 'hostnames' -Value $HostNames -MemberType NoteProperty
           }
         }
         if($NumCpu -ne 0)
@@ -1241,6 +1241,199 @@ function Set-RavelloApplicationVm
       $app
     }
   }   
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloApplicationVmService
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId,
+    [switch]$Rdp,
+    [switch]$Ssh
+  )
+  
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+    
+    $sApp = @{
+      'Raw' = $True
+    }
+    $PSBoundParameters.GetEnumerator() |
+    Where-Object{$_.Key -match '^Application'} |
+    ForEach-Object{$sApp.Add($_.Key, $_.Value)}
+    $app = Get-RavelloApplication @sApp
+    $vms = @()
+    $vms += $app.Design.Vms | ForEach-Object{
+      if($_.id -eq $VmId -or $_.name -eq $VmName)
+      {
+        if($PSBoundParameters.ContainsKey('Rdp'))
+        {
+          if($Rdp)
+          {
+            $rdpObj = @(New-Object PSObject -Property @{
+                external = $true
+                portRange = 3389
+                name = 'rdp'
+                protocol = 'RDP'
+            })
+            if($_.psobject.properties.Name -contains 'suppliedServices')
+            {
+              if(!($_.suppliedServices | where{$_.name -eq 'rdp'}))
+              {
+                $_.suppliedServices += $rdpObj
+              }
+            }
+            else
+            {
+              Add-Member -InputObject $_ -Name 'suppliedServices' -Value @($rdpObj) -MemberType NoteProperty
+            }
+          }
+          else
+          {
+            if($_.psobject.properties.Name -contains 'suppliedServices')
+            {
+              $_.suppliedServices = @($_.suppliedServices | where{$_.name -ne 'rdp'})
+            }    
+          }
+        }
+        if($PSBoundParameters.ContainsKey('Ssh'))
+        {
+          if($Ssh)
+          {
+            $sshObj = @(New-Object PSObject -Property @{
+                external = $true
+                externalPort = 22
+                name = 'ssh'
+                protocol = 'SSH'
+            })
+            if($_.psobject.properties.Name -contains 'suppliedServices')
+            {
+              if(!($_.suppliedServices | where{$_.name -eq 'ssh'}))
+              {
+                $_.suppliedServices += $sshObj
+              }
+            }
+            else
+            {
+              Add-Member -InputObject $_ -Name 'suppliedServices' -Value @($sshObj) -MemberType NoteProperty
+            }
+          }
+          else
+          {
+            if($_.psobject.properties.Name -contains 'suppliedServices')
+            {
+              $_.suppliedServices = @($_.suppliedServices | where{$_.name -ne 'ssh'})
+            }    
+          }
+        }
+      }
+      if($_.suppliedServices -eq $null)
+      {
+        $_.psobject.properties.Remove('suppliedServices')
+      }
+      $_
+    }
+    Update-hRavelloField -Object $app.design -Property 'vms' -Value $vms
+    $sApp = @{
+      Method  = 'Put'
+      Request = "applications/$($app.id)"
+      Body    = $app
+    }
+    If ($PSCmdlet.ShouldProcess('Configuring services on application VM'))
+    {
+      $app = Invoke-hRavelloRest @sApp
+      if(!$Raw)
+      {Convert-hRavelloTimeField -Object $app}
+      $app
+    }
+      
+  }    
+}
+
+# .ExternalHelp Ravello-Help.xml
+function Set-RavelloApplicationVmDisk
+{
+  [CmdletBinding(SupportsShouldProcess = $True, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId', ValueFromPipelineByPropertyName)]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName', ValueFromPipelineByPropertyName)]
+    [Alias('id')]
+    [long]$ApplicationId,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$ApplicationName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmName')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmName')]
+    [string]$VmName,
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppId-VmId')]
+    [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
+    [long]$VmId,
+    [ValidateSet('GB', 'MB', 'KB', 'BYTE')]
+    [string]$DiskSizeUnit = 'GB',
+    [long]$DiskSize
+  )
+  
+  Process
+  {
+    Write-Verbose -Message "$($MyInvocation.MyCommand.Name)"
+    Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
+    Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
+    
+    $sApp = @{
+      'Raw' = $True
+    }
+    $PSBoundParameters.GetEnumerator() |
+    Where-Object{$_.Key -match '^Application'} |
+    ForEach-Object{$sApp.Add($_.Key, $_.Value)}
+    $app = Get-RavelloApplication @sApp
+    $vms = @()
+    $vms += $app.Design.Vms | ForEach-Object{
+      if($_.id -eq $VmId -or $_.name -eq $VmName)
+      {
+        $_.hardDrives += New-Object PSObject -Property @{
+          boot = $false
+          controller = 'ide'
+          name = 'hdb'
+          size = New-Object PSObject -Property @{
+            unit = $DiskSizeUnit
+            value = $DiskSize
+          }
+          type = 'DISK'
+        }
+      }
+      $_
+    }
+    Update-hRavelloField -Object $app.design -Property 'vms' -Value $vms
+    $sApp = @{
+      Method  = 'Put'
+      Request = "applications/$($app.id)"
+      Body    = $app
+    }
+    If ($PSCmdlet.ShouldProcess('Configuring disks on application VM'))
+    {
+      $app = Invoke-hRavelloRest @sApp
+      if(!$Raw)
+      {Convert-hRavelloTimeField -Object $app}
+      $app
+    }
+      
+  }    
 }
 
 # .ExternalHelp Ravello-Help.xml
@@ -5215,10 +5408,10 @@ function Get-RavelloUsage
       Method  = 'Get'
       Request = 'limits'
     }
-        If ($PSCmdlet.ShouldProcess("List Usage"))
-        {
-            (Invoke-RavRest @sEvent).Limitation
-        }
+    If ($PSCmdlet.ShouldProcess("List Usage"))
+    {
+      (Invoke-RavRest @sEvent).Limitation
+    }
   }
 }
 #endregion
