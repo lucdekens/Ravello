@@ -8,7 +8,7 @@
 
 @{
   RootModule        = 'Ravello'
-  ModuleVersion     = '1.1.2.6'
+  ModuleVersion     = '1.1.3.0'
   GUID              = 'a5d6fd6d-ca99-4584-b519-0d203c03f361'
   Author            = 'Luc Dekens'
   Description       = 'Manages and automates the Ravello Systems environment'

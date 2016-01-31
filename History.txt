@@ -23,3 +23,6 @@ v1.1.2.6 - 30 Jan 2016
 - fix New-RavelloApplicationOrderGroup issue
 - fix Add-RavelloApplicationVm issue
 - extended Set-RavelloApplicationVm with Hostnames,NumCpu and MemorySize
+v1.1.3.0 - 31 Jan 2016
+- added cmdlets Set-RavelloApplicationVmService & Set-RavelloApplicationVmDisk
+- fixed issue in Set-RavelloApplicationVm
