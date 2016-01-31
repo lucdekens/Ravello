@@ -18,3 +18,8 @@ v1.1.2.4 - 26 Jan 2016
 - added Examples folder
 v1.1.2.5 - 27 Jan 2016
 - fix internal Get-RavelloApplication calls with VmName parameter
+v1.1.2.6 - 30 Jan 2016
+- fix New-RavelloApplication issue
+- fix New-RavelloApplicationOrderGroup issue
+- fix Add-RavelloApplicationVm issue
+- extended Set-RavelloApplicationVm with Hostnames,NumCpu and MemorySize

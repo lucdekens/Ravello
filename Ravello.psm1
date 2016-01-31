@@ -509,13 +509,11 @@ function New-RavelloApplication
     [Parameter(Mandatory = $True, ParameterSetName = 'BpName')]
     [string]$BlueprintName,
     [Parameter(Mandatory = $True, ParameterSetName = 'VmId')]
-    #    [Parameter(ParameterSetName = 'BpName')]
-    #    [Parameter(ParameterSetName = 'BpId')]
     [long[]]$VmImageId,
     [Parameter(Mandatory = $True, ParameterSetName = 'VmName')]
-    #    [Parameter(ParameterSetName = 'BpName')]
-    #    [Parameter(ParameterSetName = 'BpId')]
-    [string[]]$VmImageName
+    [string[]]$VmImageName,
+    [Parameter(DontShow)]
+    [switch]$Raw
   )
 	
   Process
@@ -551,7 +549,12 @@ function New-RavelloApplication
       })
     }
     If ($PSCmdlet.ShouldProcess('Create application'))
-    {$app = Invoke-hRavelloRest @sApp}
+    {
+      $app = Invoke-hRavelloRest @sApp
+      if (!$Raw)
+      {Convert-hRavelloTimeField -Object $app}
+      $app
+    }
   }
 }
 
@@ -1074,7 +1077,8 @@ function Add-RavelloApplicationVm
     }
     If ($PSCmdlet.ShouldProcess('Add VM image to application'))
     {
-      $app = Invoke-hRavelloRest @sApp
+      $app = Invoke-hRavelloRest @sApp |
+      Set-RavelloApplicationVm -VmName $ImageName -NewName $NewVmName -NewDescription $NewVmDescription
       if(!$Raw)
       {Convert-hRavelloTimeField -Object $app}
       $app
@@ -1173,7 +1177,12 @@ function Set-RavelloApplicationVm
     [Parameter(Mandatory = $True, ParameterSetName = 'AppName-VmId')]
     [long]$VmId,
     [string]$NewName,
-    [string]$NewDescription
+    [string]$NewDescription,
+    [string[]]$HostNames,
+    [long]$NumCpu,
+    [ValidateSet('GB', 'MB', 'KB', 'BYTE')]
+    [string]$MemorySizeUnit = 'GB',
+    [long]$MemorySize
   )
 
   Process
@@ -1197,6 +1206,24 @@ function Set-RavelloApplicationVm
         {$_.name = $NewName}
         if($NewDescription)
         {$_.Description = $NewDescription}
+        if($HostNames)
+        {
+          if($_.psobject.properties.Name -contains 'hostnames')
+          {
+            $_.hostnames = $HostNames
+          }
+          else
+          {
+           Add-Member -InputObject $_ -Name 'hostnames' -Value $HostNames -MemberType NoteProperty
+          }
+        }
+        if($NumCpu -ne 0)
+        {$_.numCpus = $NumCpu}
+        if($MemorySize -ne 0)
+        {
+          $_.memorySize.unit = $MemorySizeUnit
+          $_.memorySize.value = $MemorySize
+        }
       }
       $_
     }
@@ -1757,13 +1784,14 @@ function New-RavelloApplicationOrderGroup
     Write-Verbose -Message "`t$($PSCmdlet.ParameterSetName)"
     Write-Verbose -Message "`tCalled from $($stack = Get-PSCallStack; $stack[1].Command) at $($stack[1].Location)"
 
+    $app = $null
     if($ApplicationName)
     {
-      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Raw
+      $app = Get-RavelloApplication -ApplicationName $ApplicationName -Design -Raw
       $ApplicationId = $app | Select-Object -ExpandProperty id
     }
     if($ApplicationId -and !$app)
-    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Raw}
+    {$app = Get-RavelloApplication -ApplicationId $ApplicationId -Design -Raw}
     if($StartOrder)
     {
       $groups = @()
