@@ -5990,8 +5990,7 @@ if(Test-RavelloApplicationPendingUpdate -ApplicationName App1)
 						<maml:para>The Name of the VM</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="false" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>Rdp</maml:name>
@@ -6057,8 +6056,7 @@ When the switch parameter is not present on the call to the cmdlet, no action wi
 						<maml:para>The name of the Ravello Application</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="true" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>VmName</maml:name>
@@ -6066,8 +6064,7 @@ When the switch parameter is not present on the call to the cmdlet, no action wi
 						<maml:para>The Name of the VM</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="false" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>Rdp</maml:name>
@@ -6096,8 +6093,7 @@ When the switch parameter is not present on the call to the cmdlet, no action wi
 						<maml:para>The name of the Ravello Application</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="true" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>VmId</maml:name>
@@ -6151,8 +6147,7 @@ When the switch parameter is not present on the call to the cmdlet, no action wi
 					<maml:name>String</maml:name>
 					<maml:uri/>
 				</dev:type>
-				<dev:defaultValue>
-				</dev:defaultValue>
+				<dev:defaultValue/>
 			</command:parameter>
 			<command:parameter required="false" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 				<maml:name>Rdp</maml:name>
@@ -6202,8 +6197,7 @@ When the switch parameter is not present on the call to the cmdlet, no action wi
 					<maml:name>String</maml:name>
 					<maml:uri/>
 				</dev:type>
-				<dev:defaultValue>
-				</dev:defaultValue>
+				<dev:defaultValue/>
 			</command:parameter>
 		</command:parameters>
 		<command:inputTypes>
@@ -6250,7 +6244,7 @@ Nothing will be done with/for the RDP Supplied Service</maml:para>
 		<command:details>
 			<command:name>Set-RavelloApplicationVmDisk</command:name>
 			<maml:description>
-				<maml:para/>
+				<maml:para>Add a Hard Disk to a VM</maml:para>
 			</maml:description>
 			<maml:copyright>
 				<maml:para/>
@@ -6260,7 +6254,8 @@ Nothing will be done with/for the RDP Supplied Service</maml:para>
 			<dev:version/>
 		</command:details>
 		<maml:description>
-			<maml:para/>
+			<maml:para>Add a Hard Disk to a VM.
+The Hard Disk names will continue from &apos;hda&apos;, and be &apos;hdb&apos;,&apos;hdc&apos;...</maml:para>
 		</maml:description>
 		<command:syntax>
 			<!--Parameter Sets-->
@@ -6280,8 +6275,7 @@ Nothing will be done with/for the RDP Supplied Service</maml:para>
 						<maml:para>The Name of the VM</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="false" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>DiskSizeUnit</maml:name>
@@ -6297,8 +6291,7 @@ Valid values are GB,MB,KB,BYTE</maml:para>
 					<maml:description>
 						<maml:para>The disk size.
 See also the DiskSizeUnit parameter.
-
-Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
+						</maml:para>
 					</maml:description>
 					<command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
 					<dev:defaultValue>0</dev:defaultValue>
@@ -6336,8 +6329,7 @@ Valid values are GB,MB,KB,BYTE</maml:para>
 					<maml:description>
 						<maml:para>The disk size.
 See also the DiskSizeUnit parameter.
-
-Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
+						</maml:para>
 					</maml:description>
 					<command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
 					<dev:defaultValue>0</dev:defaultValue>
@@ -6351,8 +6343,7 @@ Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
 						<maml:para>The name of the Ravello Application</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="true" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>VmName</maml:name>
@@ -6360,8 +6351,7 @@ Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
 						<maml:para>The Name of the VM</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="false" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>DiskSizeUnit</maml:name>
@@ -6377,8 +6367,7 @@ Valid values are GB,MB,KB,BYTE</maml:para>
 					<maml:description>
 						<maml:para>The disk size.
 See also the DiskSizeUnit parameter.
-
-Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
+						</maml:para>
 					</maml:description>
 					<command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
 					<dev:defaultValue>0</dev:defaultValue>
@@ -6392,8 +6381,7 @@ Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
 						<maml:para>The name of the Ravello Application</maml:para>
 					</maml:description>
 					<command:parameterValue required="true" variableLength="false">String</command:parameterValue>
-					<dev:defaultValue>
-					</dev:defaultValue>
+					<dev:defaultValue/>
 				</command:parameter>
 				<command:parameter required="true" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 					<maml:name>VmId</maml:name>
@@ -6417,8 +6405,7 @@ Valid values are GB,MB,KB,BYTE</maml:para>
 					<maml:description>
 						<maml:para>The disk size.
 See also the DiskSizeUnit parameter.
-
-Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
+						</maml:para>
 					</maml:description>
 					<command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
 					<dev:defaultValue>0</dev:defaultValue>
@@ -6449,8 +6436,7 @@ Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
 					<maml:name>String</maml:name>
 					<maml:uri/>
 				</dev:type>
-				<dev:defaultValue>
-				</dev:defaultValue>
+				<dev:defaultValue/>
 			</command:parameter>
 			<command:parameter required="false" variableLength="false" globbing="false" pipelineInput="false" position="named" aliases="">
 				<maml:name>DiskSizeUnit</maml:name>
@@ -6470,8 +6456,7 @@ Valid values are GB,MB,KB,BYTE</maml:para>
 				<maml:description>
 					<maml:para>The disk size.
 See also the DiskSizeUnit parameter.
-
-Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
+					</maml:para>
 				</maml:description>
 				<command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
 				<dev:type>
@@ -6502,8 +6487,7 @@ Currently only the addition of a 2nd Hrad Disk is allowed.</maml:para>
 					<maml:name>String</maml:name>
 					<maml:uri/>
 				</dev:type>
-				<dev:defaultValue>
-				</dev:defaultValue>
+				<dev:defaultValue/>
 			</command:parameter>
 		</command:parameters>
 		<command:inputTypes>

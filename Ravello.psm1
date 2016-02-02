@@ -1406,10 +1406,11 @@ function Set-RavelloApplicationVmDisk
     $vms += $app.Design.Vms | ForEach-Object{
       if($_.id -eq $VmId -or $_.name -eq $VmName)
       {
+        $lastHdName = $_.hardDrives | where{$_.name -match "^hd"} | select -Last 1 -ExpandProperty name
         $_.hardDrives += New-Object PSObject -Property @{
           boot = $false
           controller = 'ide'
-          name = 'hdb'
+          name = $lastHdName.Replace($lastHdName[-1],[char](([int][char]$lastHdName[-1]) + 1))
           size = New-Object PSObject -Property @{
             unit = $DiskSizeUnit
             value = $DiskSize
